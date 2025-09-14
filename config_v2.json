@@ -55,6 +55,7 @@
     "radon": {
         "enabled": true,
         "port": "/dev/ttyUSB1",
+        "baudrate": 19200,
         "interval_s": 600,
         "stabilization_s": 600
     },
