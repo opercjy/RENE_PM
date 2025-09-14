@@ -1,10 +1,7 @@
 # workers/arduino_worker.py
 
-import time
-import numpy as np
-import logging
-import serial
-from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer
+import time, numpy as np, logging, serial
+from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer # pyqtSlot 임포트
 
 class ArduinoWorker(QObject):
     avg_data_ready = pyqtSignal(float, dict)
@@ -84,8 +81,10 @@ class ArduinoWorker(QObject):
                     db_data.get('digital_status'), db_data.get('message'))
         self.data_queue.put({'type': 'ARDUINO', 'data': db_tuple})
 
+    @pyqtSlot()
     def stop_worker(self):
         self._is_running = False
         self.timer.stop()
         if self.ser:
             self.ser.close()
+            logging.info("Arduino worker stopped and serial port closed.")

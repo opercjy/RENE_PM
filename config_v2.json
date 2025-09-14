@@ -9,7 +9,7 @@
         "user": "RENE_PM_ADMIN",
         "password": "rene!Q@W#E$R",
         "database": "RENE_PM",
-        "unix_socket": "/home/mariadb_data/mysql.sock"
+        "unix_socket": "/home/mariadb_data/mysql/mysql.sock"
     },
     "caen_hv": {
         "enabled": true,
@@ -35,9 +35,9 @@
         "modules": [
             {
                 "role": "LS_Temperature",
-                "serial_number": "21A3267",
+                "serial_number": "015362E3",
                 "task_type": "rtd",
-                "channels": ["ai0", "ai1"]
+                "channels": ["ai1", "ai2"]
             },
             {
                 "role": "LS_Level",
@@ -62,7 +62,9 @@
     "magnetometer": {
         "enabled": true,
         "resource_name": "USB0::0x1BFA::0x0498::0003055::INSTR",
-        "library_path": "",
+        "idVendor": "0x1bfa",
+        "idProduct": "0x0498",
+        "library_path": "/usr/lib/x86_64-linux-gnu/libvisa.so",
         "interval_s": 1.0
     },
     "th_o2": {

@@ -76,5 +76,6 @@ class MagnetometerWorker(QObject):
         dt_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))
         self.data_queue.put({'type': 'MAG', 'data': (dt_str, round(avg[0],2), round(avg[1],2), round(avg[2],2), round(avg[3],2))})
 
+    @pyqtSlot()
     def stop(self):
         self._is_running = False

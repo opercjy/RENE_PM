@@ -110,4 +110,6 @@ class DaqWorker(QObject):
             return d_min + ((v - v_min) / (v_max - v_min)) * (d_max - d_min)
         except: return 0.0
             
-    def stop(self): self._is_running = False
+    @pyqtSlot()
+    def stop(self):
+        self._is_running = False

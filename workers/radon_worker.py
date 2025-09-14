@@ -63,6 +63,7 @@ class RadonWorker(QObject):
         dt_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))
         self.data_queue.put({'type': 'RADON', 'data': (dt_str, round(mu, 2), round(sigma, 2))})
 
+    @pyqtSlot()
     def stop_worker(self):
         self.stabilization_timer.stop()
         self.measurement_timer.stop()

@@ -132,6 +132,10 @@ class DatabaseWorker(QObject):
         self.batch_timer.stop()
         logging.info("Processing remaining items before stopping DB worker.")
         self.process_batch()
-        if self.conn:
+        
+        # <<< 변경점: 연결이 유효할 때만 close()를 호출하도록 수정
+        if self.conn and self.conn.is_connected():
             self.conn.close()
             logging.info("DB connection closed.")
+        else:
+            logging.warning("DB connection was already closed or invalid.")

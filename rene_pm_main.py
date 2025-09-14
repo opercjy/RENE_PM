@@ -2,9 +2,10 @@ import sys, time, numpy as np, os, math, signal, json, logging, queue
 from typing import Dict, Any
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QGridLayout, QHBoxLayout, QVBoxLayout,
-                             QMessageBox, QLabel, QFrame, QStatusBar, QGroupBox, QTabWidget, QScrollArea)
+                             QMessageBox, QLabel, QFrame, QStatusBar, QGroupBox, QTabWidget, QScrollArea,
+                             QSystemTrayIcon, QStyle, QAction, qApp, QMenu, QTextEdit)
 from PyQt5.QtCore import QThread, QObject, pyqtSignal, pyqtSlot, Qt, QTimer, QMetaObject
-from PyQt5.QtGui import QFont, QColor, QPalette
+from PyQt5.QtGui import QFont, QColor, QPalette, QIcon, QPixmap
 import pyqtgraph as pg
 
 from workers import (DatabaseWorker, DaqWorker, RadonWorker, MagnetometerWorker, 
@@ -27,7 +28,11 @@ class ChannelWidget(QFrame):
         self.setFrameShape(QFrame.StyledPanel); self.setLineWidth(1); self.setMinimumSize(80, 50)
         layout = QVBoxLayout(self); layout.setContentsMargins(2, 2, 2, 2); layout.setSpacing(1)
         self.name_label = QLabel(f"S{slot}CH{channel}"); self.vmon_label = QLabel("--- V"); self.imon_label = QLabel("--- uA")
-        font = QFont("Arial", 8, QFont.Bold); self.name_label.setFont(font); self.vmon_label.setFont(font); self.imon_label.setFont(font)
+        
+        # <<< 변경점: 폰트 크기를 7에서 다시 8로 조정
+        font = QFont("Arial", 8, QFont.Bold)
+        
+        self.name_label.setFont(font); self.vmon_label.setFont(font); self.imon_label.setFont(font)
         self.name_label.setAlignment(Qt.AlignCenter); self.vmon_label.setAlignment(Qt.AlignCenter); self.imon_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.name_label); layout.addWidget(self.vmon_label); layout.addWidget(self.imon_label)
         self.setAutoFillBackground(True); self.update_status({'Pw': False})
@@ -55,13 +60,22 @@ class MainWindow(QMainWindow):
         self.plot_dirty_flags = {}
         self.ui_update_timer = QTimer(self); self.ui_update_timer.timeout.connect(self._update_gui); self.ui_update_timer.start(500)
         self.clock_timer = QTimer(self); self.clock_timer.timeout.connect(self._update_clock); self.clock_timer.start(1000)
+        self.latest_hv_values = {} # 그래프 샘플링을 위해 최신 HV 값만 저장할 캐시
+        self.hv_graph_sampler_timer = QTimer(self)
+        self.hv_graph_sampler_timer.timeout.connect(self._sample_hv_for_graph)
+        self.hv_graph_sampler_timer.start(60000) # 60초(1분)마다 실행
+        
         self._init_data()
         self._init_ui()
         self._init_curve_data_map()
+        self._init_tray_icon()
+
+        if self.config.get('database',{}).get('enabled'): self._start_db_worker()
+        if self.config.get('caen_hv', {}).get("enabled"): self._start_worker('caen_hv')
+        
         self.hw_thread = QThread(); self.hw_manager = HardwareManager(self.config)
         self.hw_manager.moveToThread(self.hw_thread); self.hw_manager.device_connected.connect(self.activate_sensor)
         self.hw_thread.started.connect(self.hw_manager.start_scan); self.hw_thread.start()
-        if self.config.get('database',{}).get('enabled'): self._start_db_worker()
 
     def _init_data(self):
         days = self.config.get('gui', {}).get('max_data_points_days', 31)
@@ -80,11 +94,11 @@ class MainWindow(QMainWindow):
 
     def _init_ui(self):
         self.setWindowTitle("RENE-PM v2.0 - Integrated Environment & HV Monitoring")
-        self.setGeometry(50, 50, 2560, 1440)
+        self.setGeometry(50, 50, 1920, 1080)
         self.status_bar = QStatusBar(self); self.setStatusBar(self.status_bar)
         central_widget = QWidget(); self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
-        self.plots, self.curves, self.labels = {}, {}, {}
+        self.plots, self.curves, self.labels, self.hv_slot_curves = {}, {}, {}, {}
 
         title_label = QLabel("RENE-PM Integrated Monitoring System")
         title_label.setFont(QFont("Arial", 20, QFont.Bold)); title_label.setAlignment(Qt.AlignCenter)
@@ -92,15 +106,15 @@ class MainWindow(QMainWindow):
 
         top_panel = QWidget()
         top_layout = QHBoxLayout(top_panel)
-        main_layout.addWidget(top_panel, 75)
+        main_layout.addWidget(top_panel, 70)
 
         bottom_panel = self._create_indicator_panel()
-        main_layout.addWidget(bottom_panel, 25)
+        main_layout.addWidget(bottom_panel, 30)
 
         graph_tab_panel = self._create_graph_tab_panel()
         hv_grid_panel = self._create_hv_grid_panel()
-        top_layout.addWidget(graph_tab_panel, 70)
-        top_layout.addWidget(hv_grid_panel, 30)
+        top_layout.addWidget(graph_tab_panel, 8)
+        top_layout.addWidget(hv_grid_panel, 2)
 
         shifter_text = self.config.get("shifter_name", "Unknown Shifter")
         self.shifter_label = QLabel(f" Shifter: {shifter_text} "); self.clock_label = QLabel()
@@ -126,14 +140,18 @@ class MainWindow(QMainWindow):
         tab_widget.addTab(env_panel, "Environment Graphs")
         if self.config.get('caen_hv', {}).get("enabled"):
             crate_map = self.config['caen_hv']['crate_map']
-            self.hv_slot_curves = {}
             for slot_str, board in crate_map.items():
                 slot_panel = self._create_hv_slot_graph_panel(int(slot_str), board['channels'])
                 tab_widget.addTab(slot_panel, f"HV Slot {slot_str} Graphs")
+        
+        guide_panel = self._create_guide_panel()
+        tab_widget.addTab(guide_panel, "Guide")
+        
         return tab_widget
 
     def _create_environment_panel(self):
-        container = QWidget()
+        container = QGroupBox("Environment Time-Series")
+        container.setFont(QFont("Arial", 12, QFont.Bold))
         plot_layout = QGridLayout(container)
         self._create_ui_elements(plot_layout)
         return container
@@ -143,15 +161,16 @@ class MainWindow(QMainWindow):
         hv_container_group.setFont(QFont("Arial", 12, QFont.Bold))
         hv_main_layout = QVBoxLayout(hv_container_group)
         self.hv_channel_widgets = {}
-        self.caen_config = self.config.get('caen_hv', {})
-        if self.caen_config.get("enabled"):
-            crate_map = self.caen_config.get('crate_map', {})
-            display_channels = self.caen_config.get('display_channels', {})
+        caen_config = self.config.get('caen_hv', {})
+        if caen_config.get("enabled"):
+            crate_map = caen_config.get('crate_map', {})
+            display_channels = caen_config.get('display_channels', {})
             for slot_str, board_info in crate_map.items():
                 slot = int(slot_str)
                 slot_group = QGroupBox(f"Slot {slot}: {board_info.get('description', '')}")
                 slot_group.setFont(QFont("Arial", 10))
                 slot_layout = QGridLayout(slot_group)
+                slot_layout.setAlignment(Qt.AlignLeft)
                 hv_main_layout.addWidget(slot_group)
                 channels_to_display = []
                 display_config = display_channels.get(slot_str)
@@ -169,25 +188,18 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(container)
 
         def style_plot(plot_widget, title, y_label):
-            plot_widget.setBackground('w')
-            plot_widget.setTitle(title, size='12pt')
-            plot_widget.addLegend()
-            plot_widget.showGrid(x=True, y=True, alpha=0.3)
-            plot_widget.setAxisItems({'bottom': pg.DateAxisItem(orientation='bottom')})
-            plot_widget.getAxis('left').setLabel(y_label)
-            plot_widget.getAxis('bottom').setLabel('Time')
+            plot_widget.setBackground('w'); plot_widget.setTitle(title, size='12pt')
+            if num_channels <= 16: plot_widget.addLegend()
+            plot_widget.showGrid(x=True, y=True, alpha=0.3); plot_widget.setAxisItems({'bottom': pg.DateAxisItem(orientation='bottom')})
+            plot_widget.getAxis('left').setLabel(y_label); plot_widget.getAxis('bottom').setLabel('Time')
 
-        v_plot = pg.PlotWidget()
-        style_plot(v_plot, f"Slot {slot} - Voltage", "Voltage (V)")
-        i_plot = pg.PlotWidget()
-        style_plot(i_plot, f"Slot {slot} - Current", "Current (uA)")
+        v_plot = pg.PlotWidget(); style_plot(v_plot, f"Slot {slot} - Voltage (VMon)", "Voltage (V)")
+        i_plot = pg.PlotWidget(); style_plot(i_plot, f"Slot {slot} - Current (IMon)", "Current (uA)")
         
-        layout.addWidget(v_plot)
-        layout.addWidget(i_plot)
+        layout.addWidget(v_plot); layout.addWidget(i_plot)
 
         self.hv_slot_curves[slot] = []
-        cmap = pg.colormap.get('viridis')
-        colors = cmap.getLookupTable(nPts=num_channels)
+        cmap = pg.colormap.get('viridis'); colors = cmap.getLookupTable(nPts=num_channels)
 
         for ch in range(num_channels):
             color = colors[ch]
@@ -201,67 +213,88 @@ class MainWindow(QMainWindow):
         indicator_group_box = QGroupBox("Real-time Indicators")
         indicator_group_box.setFont(QFont("Arial", 12, QFont.Bold))
         panel_layout = QHBoxLayout(indicator_group_box)
-        panel_layout.setAlignment(Qt.AlignLeft)
-        env_groups = {"LS (NI-cDAQ)":["L_LS_Temp","R_LS_Temp","GdLS_level","GCLS_level"],"Magnetometer":["B_x","B_y","B_z","|B|"],"TH/O2 Sensor":["TH_O2_Temp","TH_O2_Humi","TH_O2_Oxygen"],"Arduino":["Arduino_Temp1","Arduino_Humi1","Arduino_Temp2","Arduino_Humi2","Arduino_Dist"],"Radon":["Radon_Value","Radon_Status"]}
+        
+        # 왼쪽: 환경 센서 인디케이터
+        env_indicator_widget = QWidget()
+        env_indicator_layout = QHBoxLayout(env_indicator_widget)
+        env_indicator_layout.setAlignment(Qt.AlignLeft)
+        
+        env_groups = {"LS (NI-cDAQ)":["L_LS_Temp","R_LS_Temp","GdLS_level","GCLS_level"],"Magnetometer":["B_x","B_y","B_z","|B|"],"TH/O2 Sensor":["TH_O2_Temp","TH_O2_Humi","TH_O2_Oxygen"],
+                      "Arduino":["Temp1","Humi1","Temp2","Humi2","Dist"],"Radon":["Radon_Value","Radon_Status"]}
         for title, labels in env_groups.items():
             group_frame = QFrame(); group_frame.setFrameShape(QFrame.StyledPanel)
             group_layout = QVBoxLayout(group_frame)
-            g_lbl = QLabel(title); g_lbl.setFont(QFont("Arial", 16, QFont.Bold)); group_layout.addWidget(g_lbl)
+            g_lbl = QLabel(title); g_lbl.setFont(QFont("Arial", 15, QFont.Bold)); group_layout.addWidget(g_lbl)
             for name in labels:
-                lbl = QLabel(f"{name.replace('_', ' ')}: -"); lbl.setFont(QFont("Arial", 14))
+                lbl = QLabel(f"{name.replace('_', ' ')}: -"); lbl.setFont(QFont("Arial", 13))
                 self.labels[name] = lbl; lbl.setVisible(False); group_layout.addWidget(lbl)
-            group_layout.addStretch(1)
-            panel_layout.addWidget(group_frame)
+            group_layout.addStretch(1); env_indicator_layout.addWidget(group_frame)
+        
+        # 오른쪽: 노트/메모장
+        notes_group = QGroupBox("Notes")
+        notes_layout = QVBoxLayout(notes_group)
+        self.notes_edit = QTextEdit()
+        self.notes_edit.setReadOnly(True)
+        notes_layout.addWidget(self.notes_edit)
+        
+        try:
+            with open("notes.md", "r", encoding="utf-8") as f:
+                self.notes_edit.setMarkdown(f.read())
+        except FileNotFoundError:
+            self.notes_edit.setText("Project root folder에 notes.md 파일을 생성하세요.")
+            
+        panel_layout.addWidget(env_indicator_widget, 7) # 너비 70%
+        panel_layout.addWidget(notes_group, 3)          # 너비 30%
+
         return indicator_group_box
+    
+    def _create_guide_panel(self):
+        guide_label = QLabel()
+        guide_label.setAlignment(Qt.AlignCenter)
+        guide_label.setScaledContents(True) # <<< 자동 크기 조절 활성화
+        
+        guide_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workers", "guide.png")
+        if os.path.exists(guide_path):
+            pixmap = QPixmap(guide_path)
+            guide_label.setPixmap(pixmap)
+        else:
+            guide_label.setText("Guide image (guide.png) not found in 'workers' folder.")
+            guide_label.setFont(QFont("Arial", 16))
+        
+        scroll = QScrollArea()
+        scroll.setWidget(guide_label)
+        scroll.setWidgetResizable(True)
+        return scroll
 
     def _create_plot_group(self, group_key, configs):
-        # 이 메서드는 이제 단일 QGroupBox를 반환하여 그리드의 한 칸을 차지합니다.
-        container = QGroupBox(configs[0][1]) # 첫 번째 config의 title을 그룹 제목으로 사용
-        container.setFont(QFont("Arial", 10, QFont.Bold))
-        group_layout = QVBoxLayout(container)
-        group_layout.setContentsMargins(2, 2, 2, 2)
-        
+        container = QGroupBox(configs[0][1]); container.setFont(QFont("Arial", 10, QFont.Bold))
+        group_layout = QVBoxLayout(container); group_layout.setContentsMargins(2, 2, 2, 2)
         color_palette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
         color_index = 0
-        
         for key, title, y_lbl, legends, _ in configs:
-            plot = pg.PlotWidget()
-            plot.setBackground('w')
-            plot.showGrid(x=True,y=True,alpha=0.3)
-            plot.setAxisItems({'bottom':pg.DateAxisItem(orientation='bottom')})
-            plot.getAxis('left').setLabel(y_lbl)
-            legend = plot.addLegend(offset=(10,10))
-            legend.setBrush(pg.mkBrush(255, 255, 255, 150))
-            
+            plot = pg.PlotWidget(); plot.setBackground('w'); plot.showGrid(x=True,y=True,alpha=0.3)
+            plot.setAxisItems({'bottom':pg.DateAxisItem(orientation='bottom')}); plot.getAxis('left').setLabel(y_lbl)
+            legend = plot.addLegend(offset=(10,10)); legend.setBrush(pg.mkBrush(255, 255, 255, 150))
             for i, name in enumerate(legends):
                 pen_color = color_palette[color_index % len(color_palette)]
                 self.curves[f"{key}_{name}"] = plot.plot(pen=pg.mkPen(pen_color, width=2.5), name=name)
                 color_index += 1
             group_layout.addWidget(plot)
-            
-        self.plots[group_key] = container
-        container.setVisible(False)
+        self.plots[group_key] = container; container.setVisible(False)
         return container
 
     def _create_ui_elements(self, layout: QGridLayout):
-        # 각 conceptually-grouped plot을 생성합니다.
-        daq_temp = self._create_plot_group('daq_temp', [('daq_ls_temp', "LS Temperature (°C)", "°C", ["L_LS_Temp", "R_LS_Temp"], [])])
-        daq_level = self._create_plot_group('daq_level', [('daq_ls_level', "LS Level (mm)", "mm", ["GdLS Level", "GCLS Level"], [])])
-        th_o2 = self._create_plot_group('th_o2', [('th_o2_temp_humi', "TH/O2 Sensor", "Value", ["Temp(°C)", "Humi(%)"], []), ('th_o2_o2', "O2 Concentration", "%", ["Oxygen(%)"], [])])
-        arduino = self._create_plot_group('arduino', [('arduino_temp_humi', "Arduino Sensor", "Value", ["T1(°C)", "H1(%)", "T2(°C)", "H2(%)"], []), ('arduino_dist', "Distance", "cm", ["Dist(cm)"], [])])
-        radon = self._create_plot_group('radon', [('radon', "Radon (Bq/m³)", "Bq/m³", ["Radon (μ)"], [])])
-        mag = self._create_plot_group('mag', [('mag', "Magnetometer (mG)", "mG", ["Bx", "By", "Bz", "|B|"], [])])
+        self.plots['daq_temp'] = self._create_plot_group('daq_temp',[('daq_ls_temp',"LS Temperature (°C)","°C",["L_LS_Temp","R_LS_Temp"],[])])
+        self.plots['daq_level'] = self._create_plot_group('daq_level',[('daq_ls_level',"LS Level (mm)","mm",["GdLS Level","GCLS Level"],[])])
+        self.plots['th_o2'] = self._create_plot_group('th_o2',[('th_o2_temp_humi',"TH/O2 Sensor","Value",["Temp(°C)","Humi(%)"],[]), ('th_o2_o2',"O2 Concentration","%",["Oxygen(%)"],[])])
+        self.plots['arduino'] = self._create_plot_group('arduino',[('arduino_temp_humi',"Arduino Sensor","Value",["T1(°C)","H1(%)","T2(°C)","H2(%)"],[]), ('arduino_dist',"Distance","cm",["Dist(cm)"],[])])
+        self.plots['radon'] = self._create_plot_group('radon',[('radon',"Radon (Bq/m³)","Bq/m³",["Radon (μ)"],[])])
+        self.plots['mag'] = self._create_plot_group('mag',[('mag',"Magnetometer (mG)","mG",["Bx","By","Bz","|B|"],[])])
         
-        # 2x3 그리드로 재배치
-        layout.addWidget(daq_temp, 0, 0)
-        layout.addWidget(th_o2, 0, 1)
-        layout.addWidget(mag, 0, 2)
-        layout.addWidget(daq_level, 1, 0)
-        layout.addWidget(arduino, 1, 1)
-        layout.addWidget(radon, 1, 2)
+        layout.addWidget(self.plots['daq_temp'], 0, 0); layout.addWidget(self.plots['th_o2'], 0, 1); layout.addWidget(self.plots['mag'], 0, 2)
+        layout.addWidget(self.plots['daq_level'], 1, 0); layout.addWidget(self.plots['arduino'], 1, 1); layout.addWidget(self.plots['radon'], 1, 2)
         
-        for plot_widget in self.plots.values():
-            plot_widget.setVisible(True)
+        for plot_widget in self.plots.values(): plot_widget.setVisible(True)
 
     def _convert_daq_voltage_to_distance(self, v, mapping_index):
         try:
@@ -285,32 +318,58 @@ class MainWindow(QMainWindow):
             
     @pyqtSlot(dict)
     def _update_hv_ui(self, data):
-        timestamp = time.strftime('%Y-%m-%d %H:%M:%S'); current_time = time.time()
+        timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
         db_data_to_queue = []
+        
         for slot, slot_data in data.items():
-            if slot in self.hv_graph_data:
-                ptr = self.pointers['hv_graph'].get(slot, 0)
-                row_data = [current_time]
-                for ch in range(self.config['caen_hv']['crate_map'][str(slot)]['channels']):
-                    params = slot_data.get(ch, {})
-                    row_data.extend([params.get('VMon', np.nan), params.get('IMon', np.nan)])
-                self.hv_graph_data[slot][ptr] = row_data
-                self.pointers['hv_graph'][slot] = (ptr + 1) % self.max_lens['hv_graph']
-                self.plot_dirty_flags[f"hv_slot_{slot}"] = True
             for channel, params in slot_data.items():
                 key = (slot, channel)
-                if key in self.hv_channel_widgets: self.hv_channel_widgets[key].update_status(params)
-                db_data_to_queue.append({'type': 'HV', 'data': (timestamp, slot, channel, params.get('Pw'), params.get('VMon'), params.get('IMon'), params.get('V0Set'), params.get('I0Set'), params.get('Status'))})
-        for item in db_data_to_queue: self.db_queue.put(item)
+                
+                # 실시간 그리드 UI 업데이트 (1초마다)
+                if key in self.hv_channel_widgets:
+                    self.hv_channel_widgets[key].update_status(params)
+
+                # 그래프용 최신 값 캐시 업데이트 (1초마다)
+                self.latest_hv_values[key] = {
+                    'VMon': params.get('VMon', np.nan),
+                    'IMon': params.get('IMon', np.nan)
+                }
+                
+                # DB 저장용 데이터 준비 (1초마다)
+                db_data_to_queue.append({'type': 'HV', 'data': (timestamp, slot, channel, params.get('Pw'), 
+                                     params.get('VMon'), params.get('IMon'), params.get('V0Set'), 
+                                     params.get('I0Set'), params.get('Status'))})
+        
+        for item in db_data_to_queue:
+            self.db_queue.put(item)
 
     @pyqtSlot(bool)
     def _update_hv_connection(self, is_connected):
         status = "Connected" if is_connected else "Disconnected"
         logging.info(f"HV Connection Status Changed: {status}")
 
+    @pyqtSlot()
+    def _sample_hv_for_graph(self):
+        current_time = time.time()
+        
+        # 1분마다 캐시된 최신 값으로 그래프 데이터 포인트 추가
+        for (slot, ch), values in self.latest_hv_values.items():
+            if slot in self.hv_graph_data:
+                ptr = self.pointers['hv_graph'].get(slot, 0)
+                
+                # 해당 채널의 VMon과 IMon 값을 업데이트
+                self.hv_graph_data[slot][ptr, 0] = current_time
+                self.hv_graph_data[slot][ptr, 1 + ch * 2] = values['VMon']
+                self.hv_graph_data[slot][ptr, 2 + ch * 2] = values['IMon']
+                
+        # 모든 슬롯의 포인터를 한 번에 업데이트하고 dirty flag 설정
+        for slot in self.hv_graph_data.keys():
+            self.pointers['hv_graph'][slot] = (self.pointers['hv_graph'].get(slot, 0) + 1) % self.max_lens['hv_graph']
+            self.plot_dirty_flags[f"hv_slot_{slot}"] = True
+
     @pyqtSlot(str)
     def activate_sensor(self, name):
-        ui_map = {'daq': (['daq_temp', 'daq_level'], ["L_LS_Temp", "R_LS_Temp", "GdLS_level", "GCLS_level"]),'radon': (['radon'], ["Radon_Value", "Radon_Status"]),'magnetometer': (['mag'], ["B_x", "B_y", "B_z", "|B|"]),'th_o2': (['th_o2'], ["TH_O2_Temp", "TH_O2_Humi", "TH_O2_Oxygen"]),'arduino': (['arduino'], ["Arduino_Temp1", "Arduino_Humi1", "Arduino_Temp2", "Arduino_Humi2", "Arduino_Dist"]), 'caen_hv': ([], [])}
+        ui_map = {'daq': (['daq_temp', 'daq_level'], ["L_LS_Temp", "R_LS_Temp", "GdLS_level", "GCLS_level"]),'radon': (['radon'], ["Radon_Value", "Radon_Status"]),'magnetometer': (['mag'], ["B_x", "B_y", "B_z", "|B|"]),'th_o2': (['th_o2'], ["TH_O2_Temp", "TH_O2_Humi", "TH_O2_Oxygen"]),'arduino': (['arduino'], ["Temp1", "Humi1", "Temp2", "Humi2", "Dist"]), 'caen_hv': ([], [])}
         if name in ui_map:
             for key in ui_map[name][1]:
                 if key in self.labels: self.labels[key].setVisible(True)
@@ -399,17 +458,16 @@ class MainWindow(QMainWindow):
             if 'o2' in d: self.latest_raw_values["TH_O2_Oxygen"] = f"Oxygen: {d['o2']:.2f} %"
         if 'arduino' in data:
             d = data['arduino']
-            if 'temp0' in d and d['temp0'] is not None: self.latest_raw_values["Arduino_Temp1"] = f"Temp1: {d['temp0']:.2f} °C"
-            if 'humi0' in d and d['humi0'] is not None: self.latest_raw_values["Arduino_Humi1"] = f"Humi1: {d['humi0']:.2f} %"
-            if 'temp1' in d and d['temp1'] is not None: self.latest_raw_values["Arduino_Temp2"] = f"Temp2: {d['temp1']:.2f} °C"
-            if 'humi1' in d and d['humi1'] is not None: self.latest_raw_values["Arduino_Humi2"] = f"Humi2: {d['humi1']:.2f} %"
-            if 'dist' in d and d['dist'] is not None: self.latest_raw_values["Arduino_Dist"] = f"Dist: {d['dist']:.1f} cm"
+            if 'temp0' in d and d['temp0'] is not None: self.latest_raw_values["Temp1"] = f"Temp1: {d['temp0']:.2f} °C"
+            if 'humi0' in d and d['humi0'] is not None: self.latest_raw_values["Humi1"] = f"Humi1: {d['humi0']:.2f} %"
+            if 'temp1' in d and d['temp1'] is not None: self.latest_raw_values["Temp2"] = f"Temp2: {d['temp1']:.2f} °C"
+            if 'humi1' in d and d['humi1'] is not None: self.latest_raw_values["Humi2"] = f"Humi2: {d['humi1']:.2f} %"
+            if 'dist' in d and d['dist'] is not None: self.latest_raw_values["Dist"] = f"Dist: {d['dist']:.1f} cm"
 
     @pyqtSlot()
     def _update_gui(self):
         dirty_keys = [key for key, dirty in self.plot_dirty_flags.items() if dirty]
-        if not dirty_keys:
-            return
+        if not dirty_keys: return
 
         for key in dirty_keys:
             if key.startswith("hv_slot_"):
@@ -422,24 +480,38 @@ class MainWindow(QMainWindow):
                         if ch < len(curves):
                             curves[ch]['v'].setData(x=plot_data[:, 0], y=plot_data[:, 1 + ch * 2], connect='finite')
                             curves[ch]['i'].setData(x=plot_data[:, 0], y=plot_data[:, 2 + ch * 2], connect='finite')
-            
-            if key in self.curves and key in self.curve_data_map:
+            elif key in self.curves and key in self.curve_data_map:
                 x_data, y_data = self.curve_data_map[key]
                 self.curves[key].setData(x=x_data, y=y_data, connect='finite')
         
         self.plot_dirty_flags.clear()
 
         for key, text in self.latest_raw_values.items():
-            if key in self.labels:
-                self.labels[key].setText(text)
+            if key in self.labels: self.labels[key].setText(text)
         self.latest_raw_values.clear()
 
     def show_error(self, msg):
         logging.error(f"GUI Error: {msg}")
         QTimer.singleShot(0, lambda: QMessageBox.critical(self, "Error", msg))
 
+    def _init_tray_icon(self):
+        self.tray_icon = QSystemTrayIcon(self)
+        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png")
+        if os.path.exists(icon_path): self.tray_icon.setIcon(QIcon(icon_path))
+        else: self.tray_icon.setIcon(self.style().standardIcon(QStyle.SP_ComputerIcon))
+        show_action = QAction("Show", self); quit_action = QAction("Exit", self)
+        show_action.triggered.connect(self.showNormal); quit_action.triggered.connect(self.close)
+        tray_menu = QMenu(); tray_menu.addAction(show_action); tray_menu.addAction(quit_action)
+        self.tray_icon.setContextMenu(tray_menu); self.tray_icon.show()
+
+    def changeEvent(self, event):
+        if event.type() == event.WindowStateChange:
+            if self.isMinimized(): self.hide(); event.ignore()
+            else: super().changeEvent(event)
+
     def closeEvent(self, event):
         logging.info("Application closing...")
+        self.tray_icon.hide()
         active_threads = list(self.threads.keys())
         for name in active_threads:
             thread, worker = self.threads.get(name, (None, None))
@@ -465,8 +537,7 @@ if __name__ == '__main__':
     load_config()
     log_level = CONFIG.get('logging_level', 'INFO').upper()
     log_filename = "rene_pm.log"
-    with open(log_filename, 'w'):
-        pass
+    with open(log_filename, 'w'): pass
     logging.basicConfig(level=getattr(logging, log_level, logging.INFO), 
                         format='%(asctime)s - %(levelname)s - [%(threadName)s] - %(message)s', 
                         handlers=[logging.FileHandler(log_filename), logging.StreamHandler()])
@@ -474,11 +545,10 @@ if __name__ == '__main__':
     logging.info("="*50 + "\nRENE-PM Integrated Monitoring System Starting\n" + "="*50)
     
     app = QApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(False)
     
     signal.signal(signal.SIGINT, lambda s, f: QApplication.quit())
-    timer = QTimer()
-    timer.start(500)
-    timer.timeout.connect(lambda: None)
+    timer = QTimer(); timer.start(500); timer.timeout.connect(lambda: None)
 
     main_win = MainWindow(config=CONFIG)
     main_win.show()

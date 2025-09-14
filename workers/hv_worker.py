@@ -1,4 +1,4 @@
-# workers/hv_worker.py
+# workers/hv_worker.py (최종 수정본)
 
 import logging
 import time
@@ -21,7 +21,10 @@ class HVWorker(QObject):
         self._is_running = False
         self.polling_timer = QTimer(self)
         self.polling_timer.timeout.connect(self.poll_data)
+        
+        # <<< 최종 확인된 파라미터 이름으로 수정
         self.parameters_to_fetch = ['Pw', 'VMon', 'IMon', 'V0Set', 'I0Set', 'Status']
+        
         self.crate_map = {int(k): v for k, v in self.config.get('crate_map', {}).items()}
 
     @pyqtSlot()
@@ -62,13 +65,13 @@ class HVWorker(QObject):
                 for param in self.parameters_to_fetch:
                     values = self.device.get_ch_param(slot, channel_list, param)
                     for ch, value in zip(channel_list, values):
-                        # float 또는 int로 타입 안정화
                         try:
-                            if '.' in str(value): slot_data[ch][param] = float(value)
-                            else: slot_data[ch][param] = int(value)
+                            if param in ['VMon', 'IMon', 'V0Set', 'I0Set']:
+                                slot_data[ch][param] = float(value)
+                            else:
+                                slot_data[ch][param] = int(value)
                         except (ValueError, TypeError):
                             slot_data[ch][param] = value
-
                 collected_data[slot] = slot_data
             
             self.data_ready.emit(collected_data)
@@ -79,7 +82,7 @@ class HVWorker(QObject):
             self.polling_timer.stop()
             self.connection_status.emit(False)
 
-
+    @pyqtSlot()
     def stop_worker(self):
         self._is_running = False
         self.polling_timer.stop()

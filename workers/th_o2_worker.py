@@ -5,7 +5,8 @@ import numpy as np
 import logging
 from pymodbus.client import ModbusSerialClient
 from pymodbus.exceptions import ModbusException
-from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer
+from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer # pyqtSlot 추가
+
 
 class ThO2Worker(QObject):
     avg_data_ready = pyqtSignal(float, float, float, float)
@@ -60,6 +61,7 @@ class ThO2Worker(QObject):
         self.samples['temp'].append(temp)
         self.samples['humi'].append(humi)
         self.samples['o2'].append(o2)
+        status_update = pyqtSignal(str) # status_update 신호 추가
         
         if len(self.samples['temp']) >= (30 / (self.interval / 1000)):
             ts = time.time()
@@ -76,8 +78,10 @@ class ThO2Worker(QObject):
         dt_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))
         self.data_queue.put({'type': 'TH_O2', 'data': (dt_str, round(t, 2), round(h, 2), round(o, 2))})
 
+    @pyqtSlot()
     def stop_worker(self):
         self._is_running = False
         self.timer.stop()
         if self.client:
             self.client.close()
+            logging.info("TH/O2 worker stopped and client closed.")
