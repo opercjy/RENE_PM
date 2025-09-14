@@ -7,7 +7,7 @@
     "database": {
         "enabled": true,
         "user": "RENE_PM_ADMIN",
-        "password": "rene!Q@W#E$R",
+        "password": "안알려줌",
         "database": "RENE_PM",
         "unix_socket": "/home/mariadb_data/mysql/mysql.sock"
     },
@@ -20,7 +20,7 @@
         "password": "admin",
         "polling_interval_ms": 1000,
         "crate_map": {
-            "1": {"model": "A7030P", "channels": 48, "description": "Anode HV"},
+            "1": {"model": "A7030P", "channels": 48, "description": "Target PMT HV (Inner)"},
             "4": {"model": "A7435SN", "channels": 24, "description": "VETO PMT HV (Side)"},
             "8": {"model": "A7435SN", "channels": 24, "description": "VETO PMT HV (Top/Bottom)"}
         },
