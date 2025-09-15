@@ -9,7 +9,9 @@
         "user": "RENE_PM_ADMIN",
         "password": "rene!Q@W#E$R",
         "database": "RENE_PM",
-        "unix_socket": "/home/mariadb_data/mysql/mysql.sock"
+        "unix_socket": "/home/mariadb_data/mysql/mysql.sock",
+        "pool_name": "rene_pm_pool",
+        "pool_size": 5
     },
     "caen_hv": {
         "enabled": true,

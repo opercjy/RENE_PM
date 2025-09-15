@@ -1,3 +1,5 @@
+# workers/database_worker.py
+
 import logging
 import queue
 import mariadb
@@ -6,6 +8,7 @@ from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer
 class DatabaseWorker(QObject):
     status_update = pyqtSignal(str)
     error_occurred = pyqtSignal(str)
+    # ... (SQL INSERT, TABLE_SCHEMAS 등은 이전과 동일) ...
     SQL_INSERT = {
         'DAQ': "INSERT IGNORE INTO LS_DATA (`datetime`, `RTD_1`, `RTD_2`, `DIST_1`, `DIST_2`) VALUES (?, ?, ?, ?, ?)",
         'RADON': "INSERT IGNORE INTO RADON_DATA (`datetime`, `mu`, `sigma`) VALUES (?, ?, ?)",
@@ -44,69 +47,50 @@ class DatabaseWorker(QObject):
         );"""
     ]
 
-    def __init__(self, db_config, data_queue: queue.Queue):
+
+        # === 변경점 1: __init__에서 db_config도 함께 받도록 수정 ===
+    def __init__(self, db_pool, db_config, data_queue: queue.Queue):
         super().__init__()
-        self.db_config = db_config
+        self.db_pool = db_pool
+        self.db_config = db_config # 데이터베이스 이름을 알기 위해 config 저장
         self.data_queue = data_queue
         self._is_running = True
-        self.conn = None
         self.batch_timer = QTimer(self)
         self.batch_timer.timeout.connect(self.process_batch)
 
-    def _connect_and_setup(self):
+    def _setup_tables(self):
+        conn = None
         try:
-            if self.conn:
-                self.conn.ping()
-                return True
-        except (mariadb.Error, AttributeError):
-            self.conn = None
-        
-        try:
-            params = {
-                'user': self.db_config['user'], 'password': self.db_config['password'],
-                'database': self.db_config['database']
-            }
-            if self.db_config.get('unix_socket'):
-                params['unix_socket'] = self.db_config['unix_socket']
-            else:
-                params['host'] = self.db_config.get('host', '127.0.0.1')
-                params['port'] = self.db_config.get('port', 3306)
-            
-            self.conn = mariadb.connect(**params)
-            self.cursor = self.conn.cursor()
-            logging.info("Database connection established.")
+            conn = self.db_pool.get_connection()
+            # === 변경점 2: 연결 사용 전, 데이터베이스 지정 ===
+            conn.database = self.db_config['database']
+            cursor = conn.cursor()
             for schema in self.TABLE_SCHEMAS:
-                self.cursor.execute(schema)
-            self.conn.commit()
+                cursor.execute(schema)
+            conn.commit()
             logging.info("Database tables are ready.")
             return True
         except mariadb.Error as e:
-            self.error_occurred.emit(f"DB Connection/Setup Error: {e}")
-            self.conn = None
+            self.error_occurred.emit(f"DB Table Setup Error: {e}")
             return False
+        finally:
+            if conn:
+                conn.close()
 
     @pyqtSlot()
     def run(self):
-        if not self.db_config.get('enabled'): return
-        if not self._connect_and_setup():
+        if not self.db_pool: return
+        if not self._setup_tables():
             QTimer.singleShot(10000, self.run)
             return
         self.batch_timer.start(60 * 1000)
-        logging.info("Database worker started.")
+        logging.info("Database worker started, using shared connection pool.")
 
     @pyqtSlot()
     def process_batch(self):
         if not self._is_running: return
-        try:
-            if self.conn: self.conn.ping()
-            else: 
-                if not self._connect_and_setup(): return
-        except mariadb.Error:
-            if not self._connect_and_setup(): return
-
         batch_size = self.data_queue.qsize()
         if batch_size == 0: return
-            
         batch = {k: [] for k in self.SQL_INSERT.keys()}
         for _ in range(batch_size):
             try:
@@ -116,15 +100,22 @@ class DatabaseWorker(QObject):
                 self.data_queue.task_done()
             except queue.Empty: break
         
+        conn = None
         try:
+            conn = self.db_pool.get_connection()
+            # === 변경점 3: 배치 처리 시에도 데이터베이스 지정 ===
+            conn.database = self.db_config['database']
+            cursor = conn.cursor()
             for type_key, data_list in batch.items():
                 if data_list:
-                    self.cursor.executemany(self.SQL_INSERT[type_key], data_list)
-            self.conn.commit()
+                    cursor.executemany(self.SQL_INSERT[type_key], data_list)
+            conn.commit()
             logging.info(f"Successfully inserted batch of {batch_size} items.")
         except mariadb.Error as e:
             logging.error(f"DB insert error: {e}. Rolling back...")
-            self.conn.rollback()
+            if conn: conn.rollback()
+        finally:
+            if conn: conn.close()
 
     @pyqtSlot()
     def stop(self):
@@ -132,10 +123,4 @@ class DatabaseWorker(QObject):
         self.batch_timer.stop()
         logging.info("Processing remaining items before stopping DB worker.")
         self.process_batch()
-        
-        # <<< 변경점: 연결이 유효할 때만 close()를 호출하도록 수정
-        if self.conn:
-            self.conn.close()
-            logging.info("DB connection closed.")
-        else:
-            logging.warning("DB connection was already closed or invalid.")
+        logging.info("DB worker stopped.")

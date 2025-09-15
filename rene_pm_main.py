@@ -9,6 +9,8 @@ from PyQt5.QtCore import QThread, QObject, pyqtSignal, pyqtSlot, Qt, QTimer, QMe
 from PyQt5.QtGui import QFont, QColor, QPalette, QIcon, QPixmap
 import pyqtgraph as pg
 
+import mariadb 
+
 import pandas as pd
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -61,7 +63,6 @@ class ChannelWidget(QFrame):
             self.vmon_label.setText(f"{vmon:.1f} V"); self.imon_label.setText(f"{imon:.2f} uA")
         palette.setColor(self.backgroundRole(), color); palette.setColor(QPalette.WindowText, text_color); self.setPalette(palette)
 
-
 class MainWindow(QMainWindow):
     hv_control_command = pyqtSignal(dict)
 
@@ -69,6 +70,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.config = config
         self.db_queue = queue.Queue()
+        self.db_pool = None
         self.threads = {}
         self.latest_raw_values = {}
         self.plot_dirty_flags = {}
@@ -86,14 +88,37 @@ class MainWindow(QMainWindow):
         self._init_ui()
         self._init_curve_data_map()
         self._init_tray_icon()
-        if self.config.get('database',{}).get('enabled'): self._start_db_worker()
+        if self.config.get('database',{}).get('enabled'):
+            self._init_db_pool() # 풀 생성 메서드 호출
+            self._start_db_worker()
         if self.config.get('caen_hv', {}).get("enabled"): self._start_worker('caen_hv')
         self.hw_thread = QThread(); self.hw_manager = HardwareManager(self.config)
         self.hw_manager.moveToThread(self.hw_thread); self.hw_manager.device_connected.connect(self.activate_sensor)
         self.hw_thread.started.connect(self.hw_manager.start_scan); self.hw_thread.start()
 
+    def _init_db_pool(self):
+        try:
+            db_config = self.config['database']
+            pool_config = {
+                'user': db_config['user'],
+                'password': db_config['password'],
+                'pool_name': db_config.get('pool_name', 'rene_pm_default_pool'),
+                'pool_size': db_config.get('pool_size', 3)
+            }
+            if db_config.get('unix_socket'):
+                pool_config['unix_socket'] = db_config['unix_socket']
+            else:
+                pool_config['host'] = db_config.get('host', '127.0.0.1')
+                pool_config['port'] = db_config.get('port', 3306)
+
+            self.db_pool = mariadb.ConnectionPool(**pool_config)
+            logging.info(f"Database connection pool '{pool_config['pool_name']}' created with size {pool_config['pool_size']}.")
+        except mariadb.Error as e:
+            self.show_error(f"Failed to create DB connection pool: {e}")
+            self.db_pool = None
+
     def _init_data(self):
-        # ... (이전과 동일, 변경 없음) ...
+        # ... (이전과 동일)
         days = self.config.get('gui', {}).get('max_data_points_days', 31)
         self.m1m_len = days * 24 * 60; self.m10m_len = days * 24 * 6
         self.rtd_data = np.full((self.m1m_len, 3), np.nan); self.dist_data = np.full((self.m1m_len, 3), np.nan)
@@ -109,7 +134,7 @@ class MainWindow(QMainWindow):
         self.max_lens = {'daq': self.m1m_len, 'radon': self.m10m_len, 'mag': self.m1m_len, 'th_o2': self.m1m_len, 'arduino': self.m1m_len, 'hv_graph': self.m1m_len}
 
     def _init_ui(self):
-        # ... (이전과 동일, 변경 없음) ...
+        # ... (이전과 동일)
         self.setWindowTitle("RENE-PM v2.0 - Integrated Environment & HV Monitoring")
         self.setGeometry(50, 50, 1920, 1080)
         self.status_bar = QStatusBar(self); self.setStatusBar(self.status_bar)
@@ -134,7 +159,7 @@ class MainWindow(QMainWindow):
         self._update_clock()
     
     def _init_curve_data_map(self):
-        # ... (이전과 동일, 변경 없음) ...
+        # ... (이전과 동일)
         self.curve_data_map = {
             "daq_ls_temp_L_LS_Temp": (self.rtd_data[:, 0], self.rtd_data[:, 1]), "daq_ls_temp_R_LS_Temp": (self.rtd_data[:, 0], self.rtd_data[:, 2]),
             "daq_ls_level_GdLS Level": (self.dist_data[:, 0], self.dist_data[:, 1]), "daq_ls_level_GCLS Level": (self.dist_data[:, 0], self.dist_data[:, 2]),
@@ -148,17 +173,15 @@ class MainWindow(QMainWindow):
         }
 
     def _create_graph_tab_panel(self):
+        # ... (이전과 동일)
         tab_widget = QTabWidget()
         if self.config.get('caen_hv', {}).get("enabled"):
             hv_control_panel = self._create_hv_control_panel()
             tab_widget.addTab(hv_control_panel, "HV Control")
-
         env_panel = self._create_environment_panel()
         tab_widget.addTab(env_panel, "Environment Graphs")
-        
         analysis_panel = self._create_analysis_panel()
         tab_widget.addTab(analysis_panel, "Analysis")
-
         if self.config.get('caen_hv', {}).get("enabled"):
             crate_map = self.config['caen_hv']['crate_map']
             for slot_str, board in crate_map.items():
@@ -169,14 +192,14 @@ class MainWindow(QMainWindow):
         return tab_widget
 
     def _create_environment_panel(self):
-        # ... (이전과 동일, 변경 없음) ...
+        # ... (이전과 동일)
         container = QGroupBox("Environment Time-Series"); container.setFont(QFont("Arial", 12, QFont.Bold))
         plot_layout = QGridLayout(container)
         self._create_ui_elements(plot_layout)
         return container
 
+    # === 변경점 1: HV Control 버튼 스타일 및 확인창 로직 추가 ===
     def _create_hv_control_panel(self):
-        # ... (이전과 동일, 변경 없음) ...
         container = QWidget()
         main_layout = QHBoxLayout(container)
         control_group = QGroupBox("HV Channel Control"); control_layout = QFormLayout(control_group)
@@ -185,11 +208,16 @@ class MainWindow(QMainWindow):
         self.control_ch_end = QSpinBox(); self.control_ch_end.setRange(0, 99)
         self.control_v0_spinbox = QDoubleSpinBox(); self.control_v0_spinbox.setRange(0, 3000); self.control_v0_spinbox.setSuffix(" V")
         self.control_i0_spinbox = QDoubleSpinBox(); self.control_i0_spinbox.setRange(0, 1000); self.control_i0_spinbox.setSuffix(" uA")
-        apply_button = QPushButton("Apply Settings"); apply_button.clicked.connect(self._send_hv_param_command)
+        
+        apply_button = QPushButton("Apply Settings")
+        apply_button.setStyleSheet("background-color: #3498DB; color: white;") # 파란색 스타일 적용
+        apply_button.clicked.connect(self._send_hv_param_command)
+        
         power_on_button = QPushButton("Power ON"); power_on_button.setStyleSheet("background-color: #27AE60; color: white;")
         power_on_button.clicked.connect(lambda: self._send_hv_power_command(True))
         power_off_button = QPushButton("Power OFF"); power_off_button.setStyleSheet("background-color: #C0392B; color: white;")
         power_off_button.clicked.connect(lambda: self._send_hv_power_command(False))
+        
         control_layout.addRow("Slot:", self.control_slot_combo); control_layout.addRow("Channel Start:", self.control_ch_start)
         control_layout.addRow("Channel End:", self.control_ch_end); control_layout.addRow("Set Voltage (V0Set):", self.control_v0_spinbox)
         control_layout.addRow("Set Current (I0Set):", self.control_i0_spinbox); control_layout.addRow(apply_button)
@@ -206,12 +234,18 @@ class MainWindow(QMainWindow):
         control_panel = QFrame(); control_panel.setFrameShape(QFrame.StyledPanel)
         control_layout = QHBoxLayout(control_panel)
         self.analysis_combo = QComboBox()
+        
+        # === 변경점 2: SQL 예약어 문제를 피하기 위해 모든 컬럼명에 백틱(`) 추가 ===
         self.analysis_map = {
-            "LS Temperature (°C)": "SELECT datetime, RTD_1, RTD_2 FROM LS_DATA", "LS Level (mm)": "SELECT datetime, DIST_1, DIST_2 FROM LS_DATA",
-            "Magnetometer (mG)": "SELECT datetime, Bx, By, Bz, B_mag FROM MAGNETOMETER_DATA", "Radon (Bq/m³)": "SELECT datetime, mu FROM RADON_DATA",
-            "TH/O2 Sensor": "SELECT datetime, temperature, humidity, oxygen FROM TH_O2_DATA", "Arduino Sensor": "SELECT datetime, analog_1, analog_2, analog_3, analog_4, analog_5 FROM ARDUINO_DATA",
+            "LS Temperature (°C)": "SELECT `datetime`, `RTD_1`, `RTD_2` FROM LS_DATA",
+            "LS Level (mm)": "SELECT `datetime`, `DIST_1`, `DIST_2` FROM LS_DATA",
+            "Magnetometer (mG)": "SELECT `datetime`, `Bx`, `By`, `Bz`, `B_mag` FROM MAGNETOMETER_DATA",
+            "Radon (Bq/m³)": "SELECT `datetime`, `mu` FROM RADON_DATA",
+            "TH/O2 Sensor": "SELECT `datetime`, `temperature`, `humidity`, `oxygen` FROM TH_O2_DATA",
+            "Arduino Sensor": "SELECT `datetime`, `analog_1`, `analog_2`, `analog_3`, `analog_4`, `analog_5` FROM ARDUINO_DATA",
             "High Voltage (HV)": "HV_QUERY"
         }
+
         self.analysis_combo.addItems(self.analysis_map.keys())
         self.analysis_combo.currentTextChanged.connect(self._on_analysis_type_changed)
         self.env_control_widget = QWidget()
@@ -230,15 +264,12 @@ class MainWindow(QMainWindow):
         type_layout = QFormLayout(); type_layout.addRow("Data Type:", self.analysis_combo)
         control_layout.addLayout(type_layout); control_layout.addWidget(self.env_control_widget); control_layout.addWidget(self.hv_control_widget)
         control_layout.addWidget(self.plot_button); control_layout.addStretch()
-        
-        # === 변경점 1: UI 생성 시에는 캔버스만 만들고, 서브플롯은 동적으로 생성 ===
         self.analysis_canvas = FigureCanvas(Figure(figsize=(15, 6)))
-        
         main_layout.addWidget(control_panel); main_layout.addWidget(self.analysis_canvas)
         return container
         
     def _create_hv_grid_panel(self):
-        # ... (이전과 동일, 변경 없음) ...
+        # ... (이전과 동일)
         hv_container_group = QGroupBox("CAEN High Voltage Status"); hv_container_group.setFont(QFont("Arial", 12, QFont.Bold))
         hv_main_layout = QVBoxLayout(hv_container_group)
         self.hv_channel_widgets = {}
@@ -262,7 +293,7 @@ class MainWindow(QMainWindow):
         return hv_container_group
     
     def _create_hv_slot_graph_panel(self, slot, num_channels):
-        # ... (이전과 동일, 변경 없음) ...
+        # ... (이전과 동일)
         container = QWidget(); layout = QHBoxLayout(container)
         def style_plot(plot_widget, title, y_label):
             plot_widget.setBackground('w'); plot_widget.setTitle(title, size='12pt')
@@ -282,7 +313,7 @@ class MainWindow(QMainWindow):
         return container
 
     def _create_indicator_panel(self):
-        # ... (이전과 동일, 변경 없음) ...
+        # ... (이전과 동일)
         indicator_group_box = QGroupBox("Real-time Indicators"); indicator_group_box.setFont(QFont("Arial", 12, QFont.Bold))
         panel_layout = QHBoxLayout(indicator_group_box)
         env_indicator_widget = QWidget(); env_indicator_layout = QHBoxLayout(env_indicator_widget)
@@ -307,7 +338,7 @@ class MainWindow(QMainWindow):
         return indicator_group_box
     
     def _create_guide_panel(self):
-        # ... (이전과 동일, 변경 없음) ...
+        # ... (이전과 동일)
         guide_label = QLabel(); guide_label.setAlignment(Qt.AlignCenter); guide_label.setScaledContents(True)
         guide_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "guide.png")
         if os.path.exists(guide_path):
@@ -318,7 +349,7 @@ class MainWindow(QMainWindow):
         return scroll
 
     def _create_plot_group(self, group_key, configs):
-        # ... (이전과 동일, 변경 없음) ...
+        # ... (이전과 동일)
         container = QGroupBox(configs[0][1]); container.setFont(QFont("Arial", 10, QFont.Bold))
         group_layout = QVBoxLayout(container); group_layout.setContentsMargins(2, 2, 2, 2)
         color_palette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
@@ -339,7 +370,7 @@ class MainWindow(QMainWindow):
         return container
 
     def _create_ui_elements(self, layout: QGridLayout):
-        # ... (이전과 동일, 변경 없음) ...
+        # ... (이전과 동일)
         self.plots['daq_temp'] = self._create_plot_group('daq_temp',[('daq_ls_temp',"LS Temperature (°C)","°C",["L_LS_Temp","R_LS_Temp"],[])])
         self.plots['daq_level'] = self._create_plot_group('daq_level',[('daq_ls_level',"LS Level (mm)","mm",["GdLS Level","GCLS Level"],[])])
         self.plots['th_o2'] = self._create_plot_group('th_o2',[('th_o2_temp_humi',"TH/O2 Sensor","Value",["Temp(°C)","Humi(%)"],[]), ('th_o2_o2',"O2 Concentration","%",["Oxygen(%)"],[])])
@@ -351,7 +382,7 @@ class MainWindow(QMainWindow):
         for plot_widget in self.plots.values(): plot_widget.setVisible(True)
 
     def _convert_daq_voltage_to_distance(self, v, mapping_index):
-        # ... (이전과 동일, 변경 없음) ...
+        # ... (이전과 동일)
         try:
             daq_config = self.config.get('daq', {}); volt_module = next((mod for mod in daq_config.get('modules', []) if mod['task_type'] == 'volt'), None)
             if volt_module:
@@ -368,12 +399,20 @@ class MainWindow(QMainWindow):
 
     def _send_hv_param_command(self):
         slot = int(self.control_slot_combo.currentText()); ch_start = self.control_ch_start.value(); ch_end = self.control_ch_end.value()
-        channels = list(range(ch_start, ch_end + 1))
-        params_to_set = {'V0Set': self.control_v0_spinbox.value(), 'I0Set': self.control_i0_spinbox.value()}
-        command = {'type': 'set_params', 'slot': slot, 'channels': channels, 'params': params_to_set}
-        self.hv_control_command.emit(command)
+        v0 = self.control_v0_spinbox.value(); i0 = self.control_i0_spinbox.value()
+        
+        reply = QMessageBox.question(self, 'Confirm Action', 
+            f"Apply V0Set={v0}V, I0Set={i0}uA to Slot {slot}, Channels {ch_start}-{ch_end}?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+
+        if reply == QMessageBox.Yes:
+            channels = list(range(ch_start, ch_end + 1))
+            params_to_set = {'V0Set': v0, 'I0Set': i0}
+            command = {'type': 'set_params', 'slot': slot, 'channels': channels, 'params': params_to_set}
+            self.hv_control_command.emit(command)
 
     def _send_hv_power_command(self, power_state):
+        # ... (이전과 동일)
         slot = int(self.control_slot_combo.currentText()); ch_start = self.control_ch_start.value(); ch_end = self.control_ch_end.value()
         reply = QMessageBox.question(self, 'Confirm Action', 
             f"Are you sure you want to turn Power {'ON' if power_state else 'OFF'} for Slot {slot}, Channels {ch_start}-{ch_end}?",
@@ -384,46 +423,49 @@ class MainWindow(QMainWindow):
             self.hv_control_command.emit(command)
 
     def _on_analysis_type_changed(self, text):
+        # ... (이전과 동일)
         if text == "High Voltage (HV)":
             self.env_control_widget.hide(); self.hv_control_widget.show()
         else:
             self.hv_control_widget.hide(); self.env_control_widget.show()
 
     def _run_analysis(self):
-        if not self.config.get('database', {}).get('enabled'):
-            self.show_error("Database is not enabled in the configuration."); return
+        if not self.db_pool:
+            self.show_error("Database connection pool is not available.")
+            return
+        
         self.plot_button.setEnabled(False); self.plot_button.setText("Loading...")
+        
         analysis_type = self.analysis_combo.currentText()
         query = self.analysis_map[analysis_type]
+        
         if query == "HV_QUERY":
             slot = self.hv_slot_combo.currentText(); ch_start = self.hv_ch_start.value(); ch_end = self.hv_ch_end.value()
-            query = f"SELECT datetime, channel, vmon, imon FROM HV_DATA WHERE slot = ? AND channel BETWEEN ? AND ?"
+            query = f"SELECT `datetime`, `channel`, `vmon`, `imon` FROM HV_DATA WHERE `slot` = ? AND `channel` BETWEEN ? AND ?"
             params = [int(slot), ch_start, ch_end]
         else:
             start_date = self.start_date_edit.date().toString("yyyy-MM-dd 00:00:00")
             end_date = self.end_date_edit.date().toString("yyyy-MM-dd 23:59:59")
-            query = f"{query} WHERE datetime BETWEEN ? AND ?"
+            query = f"{query} WHERE `datetime` BETWEEN ? AND ?"
             params = [start_date, end_date]
-        self.analysis_thread = AnalysisWorker(self.config['database'], query, params)
+            
+        # === 변경점: AnalysisWorker에 db_config 추가 전달 ===
+        self.analysis_thread = AnalysisWorker(self.db_pool, self.config['database'], query, params)
         self.analysis_thread.analysis_complete.connect(self._plot_analysis_data)
         self.analysis_thread.error_occurred.connect(self.show_error)
         self.analysis_thread.finished.connect(self._on_analysis_finished)
         self.analysis_thread.start()
 
-    # === 변경점 2: 플롯 메서드를 데이터 종류에 따라 동적으로 레이아웃 구성 ===
     def _plot_analysis_data(self, df):
+        # ... (이전과 동일)
         if df.empty:
             self.show_error("No data found for the selected period."); return
-        
-        self.analysis_canvas.figure.clear() # 이전 그림을 완전히 초기화
+        self.analysis_canvas.figure.clear()
         df['datetime'] = pd.to_datetime(df['datetime'])
         analysis_type = self.analysis_combo.currentText()
-        
         if analysis_type == "High Voltage (HV)":
-            # HV 선택 시: 2x1 서브플롯 생성
             v_ax, i_ax = self.analysis_canvas.figure.subplots(2, 1, sharex=True)
             self.analysis_canvas.figure.suptitle(f"Analysis of {analysis_type}", fontsize=16)
-            
             v_ax.set_ylabel("Voltage (VMon)"); i_ax.set_ylabel("Current (IMon)")
             df_v_pivot = df.pivot(index='datetime', columns='channel', values='vmon')
             df_i_pivot = df.pivot(index='datetime', columns='channel', values='imon')
@@ -434,7 +476,6 @@ class MainWindow(QMainWindow):
             v_ax.legend(); i_ax.legend()
             v_ax.grid(True); i_ax.grid(True)
         else:
-            # 그 외 센서: 1x1 단일 서브플롯 생성
             ax = self.analysis_canvas.figure.add_subplot(111)
             ax.set_title(f"Analysis of {analysis_type}", fontsize=16)
             df.set_index('datetime', inplace=True)
@@ -443,28 +484,22 @@ class MainWindow(QMainWindow):
                 ax.plot(df.index, df[column], marker='o', linestyle='-', markersize=2, label=column)
             ax.legend()
             ax.grid(True)
-
         self.analysis_canvas.figure.autofmt_xdate()
-        self.analysis_canvas.figure.tight_layout(rect=[0, 0, 1, 0.96]) # suptitle과 겹치지 않게 조정
+        self.analysis_canvas.figure.tight_layout(rect=[0, 0, 1, 0.96])
         self.analysis_canvas.draw()
 
     def _on_analysis_finished(self):
+        # ... (이전과 동일)
         self.plot_button.setEnabled(True); self.plot_button.setText("Plot Data")
-
-    # ... (이후 모든 메서드는 이전과 동일) ...
-
+    
+    # ... (나머지 모든 코드는 이전과 동일)
     @pyqtSlot(str)
-    def _update_log_viewer(self, message):
-        self.log_viewer_text.append(message.strip())
-
+    def _update_log_viewer(self, message): self.log_viewer_text.append(message.strip())
     @pyqtSlot()
-    def _update_clock(self):
-        now = time.strftime('%Y-%m-%d %H:%M:%S'); self.clock_label.setText(f" {now} ")
-
+    def _update_clock(self): now = time.strftime('%Y-%m-%d %H:%M:%S'); self.clock_label.setText(f" {now} ")
     @pyqtSlot(str)
     def _update_radon_status(self, status_text):
         if "Radon_Status" in self.labels: self.labels["Radon_Status"].setText(f"Status: {status_text}")
-            
     @pyqtSlot(dict)
     def _update_hv_ui(self, data):
         timestamp = time.strftime('%Y-%m-%d %H:%M:%S'); db_data_to_queue = []
@@ -478,11 +513,8 @@ class MainWindow(QMainWindow):
                 self.latest_hv_values[key] = {'VMon': params.get('VMon', np.nan), 'IMon': params.get('IMon', np.nan)}
                 db_data_to_queue.append({'type': 'HV', 'data': (timestamp, slot, channel, params.get('Pw'), params.get('VMon'), params.get('IMon'), params.get('V0Set'), params.get('I0Set'), params.get('Status'))})
         for item in db_data_to_queue: self.db_queue.put(item)
-
     @pyqtSlot(bool)
-    def _update_hv_connection(self, is_connected):
-        status = "Connected" if is_connected else "Disconnected"; logging.info(f"HV Connection Status Changed: {status}")
-
+    def _update_hv_connection(self, is_connected): status = "Connected" if is_connected else "Disconnected"; logging.info(f"HV Connection Status Changed: {status}")
     @pyqtSlot()
     def _sample_hv_for_graph(self):
         current_time = time.time()
@@ -495,7 +527,6 @@ class MainWindow(QMainWindow):
         for slot in self.hv_graph_data.keys():
             self.pointers['hv_graph'][slot] = (self.pointers['hv_graph'].get(slot, 0) + 1) % self.max_lens['hv_graph']
             self.plot_dirty_flags[f"hv_slot_{slot}"] = True
-
     @pyqtSlot(str)
     def activate_sensor(self, name):
         ui_map = {'daq': (['daq_temp', 'daq_level'], ["L_LS_Temp","R_LS_Temp","GdLS_level","GCLS_level"]),'radon': (['radon'], ["Radon_Value", "Radon_Status"]),'magnetometer': (['mag'], ["B_x", "B_y", "B_z", "B"]),'th_o2': (['th_o2'], ["TH_O2_Temp","TH_O2_Humi","TH_O2_Oxygen"]),'arduino': (['arduino'], ["Temp1","Humi1","Temp2","Humi2","Dist"]), 'caen_hv': ([], [])}
@@ -503,14 +534,19 @@ class MainWindow(QMainWindow):
             for key in ui_map[name][1]:
                 if key in self.labels: self.labels[key].setVisible(True)
         self._start_worker(name)
-
     def _start_db_worker(self):
-        if 'db' in self.threads: return
-        thread=QThread(); worker=DatabaseWorker(self.config['database'], self.db_queue)
-        worker.moveToThread(thread); worker.status_update.connect(self.status_bar.showMessage)
-        worker.error_occurred.connect(self.show_error); thread.started.connect(worker.run); thread.start()
+        if 'db' in self.threads or not self.db_pool: return
+        
+        thread=QThread()
+        # === 변경점: DatabaseWorker에 db_config 추가 전달 ===
+        worker=DatabaseWorker(self.db_pool, self.config['database'], self.db_queue)
+        
+        worker.moveToThread(thread)
+        worker.status_update.connect(self.status_bar.showMessage)
+        worker.error_occurred.connect(self.show_error)
+        thread.started.connect(worker.run)
+        thread.start()
         self.threads['db']=(thread,worker)
-
     def _start_worker(self, name):
         if name in self.threads: return
         worker_map = {'daq':(DaqWorker,True),'radon':(RadonWorker,False),'magnetometer':(MagnetometerWorker,True),'th_o2':(ThO2Worker,False),'arduino':(ArduinoWorker,False), 'caen_hv':(HVWorker, False)}
@@ -536,7 +572,6 @@ class MainWindow(QMainWindow):
         elif hasattr(worker, 'status_update'): worker.status_update.connect(self.status_bar.showMessage)
         thread.started.connect(worker.run if use_run else worker.start_worker)
         thread.start(); self.threads[name] = (thread, worker)
-
     @pyqtSlot(float, dict)
     def update_daq_ui(self, ts, data):
         ptr = self.pointers['daq']; rtd, dist = data.get('rtd', []), data.get('dist', [])
@@ -544,14 +579,12 @@ class MainWindow(QMainWindow):
         self.dist_data[ptr] = [ts, dist[0] if len(dist) > 0 else np.nan, dist[1] if len(dist) > 1 else np.nan]
         self.pointers['daq'] = (ptr + 1) % self.max_lens['daq']
         self.plot_dirty_flags.update({"daq_ls_temp_L_LS_Temp": True, "daq_ls_temp_R_LS_Temp": True,"daq_ls_level_GdLS Level": True, "daq_ls_level_GCLS Level": True})
-
     @pyqtSlot(float, float, float)
     def update_radon_ui(self, ts, mu, sigma):
         ptr = self.pointers['radon']; self.radon_data[ptr] = [ts, mu]
         self.pointers['radon'] = (ptr + 1) % self.max_lens['radon']
         self.plot_dirty_flags["radon_Radon (μ)"] = True
         self.latest_raw_values["Radon_Value"] = f"Value: {mu:.2f} ± {sigma:.2f}"
-    
     @pyqtSlot(dict)
     def update_radon_data(self, data):
         ts = data['ts']; mu = data['mu']; sigma = data['sigma']
@@ -559,26 +592,22 @@ class MainWindow(QMainWindow):
         self.pointers['radon'] = (ptr + 1) % self.max_lens['radon']
         self.plot_dirty_flags["radon_Radon (μ)"] = True
         self.latest_raw_values["Radon_Value"] = f"Radon Value: {mu:.2f} Bq/m³"; self.latest_raw_values["Radon_Status"] = f"Status: Measured"
-
     @pyqtSlot(float, list)
     def update_mag_ui(self, ts, mag):
         ptr = self.pointers['mag']; self.mag_data[ptr] = [ts] + mag
         self.pointers['mag'] = (ptr + 1) % self.max_lens['mag']
         self.plot_dirty_flags.update({"mag_Bx": True, "mag_By": True, "mag_Bz": True, "mag_|B|": True})
-
     @pyqtSlot(float, float, float, float)
     def update_th_o2_ui(self, ts, temp, humi, o2):
         ptr = self.pointers['th_o2']; self.th_o2_data[ptr] = [ts, temp, humi, o2]
         self.pointers['th_o2'] = (ptr + 1) % self.max_lens['th_o2']
         self.plot_dirty_flags.update({"th_o2_temp_humi_Temp(°C)": True, "th_o2_temp_humi_Humi(%)": True, "th_o2_o2_Oxygen(%)": True})
-
     @pyqtSlot(float, dict)
     def update_arduino_ui(self, ts, data):
         ptr = self.pointers['arduino']
         self.arduino_data[ptr] = [ts, data.get('temp0', np.nan), data.get('humi0', np.nan), data.get('temp1', np.nan), data.get('humi1', np.nan), data.get('dist', np.nan)]
         self.pointers['arduino'] = (ptr + 1) % self.max_lens['arduino']
         self.plot_dirty_flags.update({"arduino_temp_humi_T1(°C)": True, "arduino_temp_humi_H1(%)": True,"arduino_temp_humi_T2(°C)": True, "arduino_temp_humi_H2(%)": True,"arduino_dist_Dist(cm)": True})
-
     @pyqtSlot(dict)
     def update_raw_ui(self, data):
         def set_label_style_and_text(key, text):
@@ -609,7 +638,6 @@ class MainWindow(QMainWindow):
             if 'temp1' in d and d['temp1'] is not None: set_label_style_and_text("Temp2", f"Temp2: {d['temp1']:.2f} °C")
             if 'humi1' in d and d['humi1'] is not None: set_label_style_and_text("Humi2", f"Humi2: {d['humi1']:.2f} %")
             if 'dist' in d and d['dist'] is not None: set_label_style_and_text("Dist", f"Dist: {d['dist']:.1f} cm")
-
     @pyqtSlot()
     def _update_gui(self):
         dirty_keys = [key for key, dirty in self.plot_dirty_flags.items() if dirty]
@@ -628,10 +656,7 @@ class MainWindow(QMainWindow):
                 x_data, y_data = self.curve_data_map[key]
                 self.curves[key].setData(x=x_data, y=y_data, connect='finite')
         self.plot_dirty_flags.clear()
-
-    def show_error(self, msg):
-        logging.error(f"GUI Error: {msg}"); QTimer.singleShot(0, lambda: QMessageBox.critical(self, "Error", msg))
-
+    def show_error(self, msg): logging.error(f"GUI Error: {msg}"); QTimer.singleShot(0, lambda: QMessageBox.critical(self, "Error", msg))
     def _init_tray_icon(self):
         self.tray_icon = QSystemTrayIcon(self)
         icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png")
@@ -641,7 +666,6 @@ class MainWindow(QMainWindow):
         show_action.triggered.connect(self.showNormal); quit_action.triggered.connect(self.close)
         tray_menu = QMenu(); tray_menu.addAction(show_action); tray_menu.addAction(quit_action)
         self.tray_icon.setContextMenu(tray_menu); self.tray_icon.show()
-
     def closeEvent(self, event):
         logging.info("Application closing...")
         self.tray_icon.hide()
@@ -660,6 +684,9 @@ class MainWindow(QMainWindow):
             QMetaObject.invokeMethod(self.hw_manager, "stop_scan", Qt.QueuedConnection)
             self.hw_thread.quit()
             if not self.hw_thread.wait(3000): logging.warning("HardwareManager thread did not finish cleanly.")
+        if self.db_pool:
+            self.db_pool.close()
+            logging.info("Database connection pool closed.")
         logging.info("All threads stopped. Exiting."); event.accept()
 
 if __name__ == '__main__':
