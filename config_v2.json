@@ -2,7 +2,7 @@
     "logging_level": "INFO",
     "shifter_name": "Jiyoung CHOI (Chonnam Nat'l Univ.)",
     "gui": {
-        "max_data_points_days": 31
+        "max_data_points_days": 7
     },
     "database": {
         "enabled": true,

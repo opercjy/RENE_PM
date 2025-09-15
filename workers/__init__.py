@@ -7,3 +7,4 @@ from .magnetometer_worker import MagnetometerWorker
 from .th_o2_worker import ThO2Worker
 from .arduino_worker import ArduinoWorker
 from .hv_worker import HVWorker
+from .analysis_worker import AnalysisWorker

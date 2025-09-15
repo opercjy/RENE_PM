@@ -1,7 +1,6 @@
-# workers/hv_worker.py (최종 수정본)
+# workers/hv_worker.py
 
 import logging
-import time
 from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer
 
 try:
@@ -13,6 +12,8 @@ class HVWorker(QObject):
     data_ready = pyqtSignal(dict)
     error_occurred = pyqtSignal(str)
     connection_status = pyqtSignal(bool)
+    # === 변경점 1: 제어 명령의 결과를 GUI로 알리기 위한 신호 추가 ===
+    control_command_status = pyqtSignal(str)
 
     def __init__(self, config):
         super().__init__()
@@ -22,9 +23,7 @@ class HVWorker(QObject):
         self.polling_timer = QTimer(self)
         self.polling_timer.timeout.connect(self.poll_data)
         
-        # <<< 최종 확인된 파라미터 이름으로 수정
         self.parameters_to_fetch = ['Pw', 'VMon', 'IMon', 'V0Set', 'I0Set', 'Status']
-        
         self.crate_map = {int(k): v for k, v in self.config.get('crate_map', {}).items()}
 
     @pyqtSlot()
@@ -60,27 +59,54 @@ class HVWorker(QObject):
             collected_data = {}
             for slot, board_info in self.crate_map.items():
                 channel_list = list(range(board_info['channels']))
+                # ... (이하 로직은 기존과 동일)
                 slot_data = {ch: {} for ch in channel_list}
-
                 for param in self.parameters_to_fetch:
                     values = self.device.get_ch_param(slot, channel_list, param)
                     for ch, value in zip(channel_list, values):
                         try:
-                            if param in ['VMon', 'IMon', 'V0Set', 'I0Set']:
-                                slot_data[ch][param] = float(value)
-                            else:
-                                slot_data[ch][param] = int(value)
-                        except (ValueError, TypeError):
-                            slot_data[ch][param] = value
+                            if param in ['VMon', 'IMon', 'V0Set', 'I0Set']: slot_data[ch][param] = float(value)
+                            else: slot_data[ch][param] = int(value)
+                        except (ValueError, TypeError): slot_data[ch][param] = value
                 collected_data[slot] = slot_data
-            
             self.data_ready.emit(collected_data)
-
         except Exception as e:
             logging.error(f"Error fetching CAEN data: {e}")
             self.error_occurred.emit(f"CAEN Communication Error: {e}")
             self.polling_timer.stop()
             self.connection_status.emit(False)
+
+    # === 변경점 2: GUI로부터 제어 명령을 받아 처리하는 슬롯 추가 ===
+    @pyqtSlot(dict)
+    def execute_control_command(self, command):
+        if not self.device:
+            self.control_command_status.emit("Error: HV device not connected.")
+            return
+
+        try:
+            cmd_type = command.get('type')
+            slot = command.get('slot')
+            channels = command.get('channels')
+            
+            if cmd_type == 'set_params':
+                params_to_set = command.get('params')
+                for param, value in params_to_set.items():
+                    self.device.set_ch_param(slot, channels, param, value)
+                    logging.info(f"Set {param}={value} for Slot {slot}, Ch {channels}")
+                self.control_command_status.emit(f"Successfully applied parameters to Slot {slot}, Ch {channels}.")
+
+            elif cmd_type == 'set_power':
+                power_state = command.get('value')
+                self.device.set_ch_param(slot, channels, 'Pw', 1 if power_state else 0)
+                state_str = "ON" if power_state else "OFF"
+                logging.info(f"Set Power {state_str} for Slot {slot}, Ch {channels}")
+                self.control_command_status.emit(f"Successfully turned Power {state_str} for Slot {slot}, Ch {channels}.")
+        
+        except Exception as e:
+            error_msg = f"HV Control Error: {e}"
+            logging.error(error_msg)
+            self.control_command_status.emit(error_msg)
+
 
     @pyqtSlot()
     def stop_worker(self):
