@@ -7,7 +7,7 @@
     "database": {
         "enabled": true,
         "user": "RENE_PM_ADMIN",
-        "password": "안알려줌",
+        "password": "rene!Q@W#E$R",
         "database": "RENE_PM",
         "unix_socket": "/home/mariadb_data/mysql/mysql.sock"
     },
@@ -61,10 +61,10 @@
     },
     "magnetometer": {
         "enabled": true,
-        "resource_name": "USB0::0x1BFA::0x0498::0003055::INSTR",
-        "idVendor": "0x1bfa",
-        "idProduct": "0x0498",
-        "library_path": "/usr/lib/x86_64-linux-gnu/libvisa.so",
+        "resource_name": "USB0::7162::1176::0003055::0::INSTR",
+        "idVendor": "0x7162",
+        "idProduct": "0x1176",
+        "library_path": "@py",
         "interval_s": 1.0
     },
     "th_o2": {

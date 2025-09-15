@@ -27,7 +27,8 @@ class RadonWorker(QObject):
             self.ser = serial.Serial(self.config['port'], 19200, timeout=10)
             self.countdown_seconds = self.config.get('stabilization_s', 600)
             status_msg = f"Stabilizing ({self.countdown_seconds}s left)..."
-            self.radon_status_update.emit(status_msg) # <<< [2] 변경점: 새 신호로 상태 전송
+            # <<< 변경점: 딕셔너리가 아닌 문자열(str)로 전송
+            self.radon_status_update.emit(status_msg)
             self.stabilization_timer.start(1000)
         except serial.SerialException as e:
             self.error_occurred.emit(f"Radon Error: {e}")
@@ -36,11 +37,13 @@ class RadonWorker(QObject):
     def _update_stabilization_countdown(self):
         self.countdown_seconds -= 1
         status_msg = f"Stabilizing ({self.countdown_seconds}s left)..."
-        self.radon_status_update.emit(status_msg) # <<< [3] 변경점: 새 신호로 상태 전송
+        # <<< 변경점: 딕셔너리가 아닌 문자열(str)로 전송
+        self.radon_status_update.emit(status_msg)
         
         if self.countdown_seconds <= 0:
             self.stabilization_timer.stop()
-            self.radon_status_update.emit("Measuring...") # <<< [4] 변경점: 새 신호로 상태 전송
+            # <<< 변경점: 딕셔너리가 아닌 문자열(str)로 전송
+            self.radon_status_update.emit("Measuring...")
             self.measurement_timer.start(self.interval)
             self.measure()
             
@@ -53,7 +56,8 @@ class RadonWorker(QObject):
                 ts = time.time()
                 mu = float(res.split(':')[1].split(' ')[1])
                 sigma = float(res.split(':')[2].split(' ')[1])
-                self.data_ready.emit(ts, mu, sigma)
+                # <<< 변경점: 딕셔너리가 아닌 3개의 float 값으로 전송
+                self.data_ready.emit(ts, mu, sigma) 
                 self._enqueue_db_data(ts, mu, sigma)
         except Exception as e:
             logging.error(f"Radon parsing error: {e}")

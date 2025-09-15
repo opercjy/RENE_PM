@@ -28,11 +28,7 @@ class ChannelWidget(QFrame):
         self.setFrameShape(QFrame.StyledPanel); self.setLineWidth(1); self.setMinimumSize(80, 50)
         layout = QVBoxLayout(self); layout.setContentsMargins(2, 2, 2, 2); layout.setSpacing(1)
         self.name_label = QLabel(f"S{slot}CH{channel}"); self.vmon_label = QLabel("--- V"); self.imon_label = QLabel("--- uA")
-        
-        # <<< 변경점: 폰트 크기를 7에서 다시 8로 조정
-        font = QFont("Arial", 8, QFont.Bold)
-        
-        self.name_label.setFont(font); self.vmon_label.setFont(font); self.imon_label.setFont(font)
+        font = QFont("Arial", 8, QFont.Bold); self.name_label.setFont(font); self.vmon_label.setFont(font); self.imon_label.setFont(font)
         self.name_label.setAlignment(Qt.AlignCenter); self.vmon_label.setAlignment(Qt.AlignCenter); self.imon_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.name_label); layout.addWidget(self.vmon_label); layout.addWidget(self.imon_label)
         self.setAutoFillBackground(True); self.update_status({'Pw': False})
@@ -60,10 +56,10 @@ class MainWindow(QMainWindow):
         self.plot_dirty_flags = {}
         self.ui_update_timer = QTimer(self); self.ui_update_timer.timeout.connect(self._update_gui); self.ui_update_timer.start(500)
         self.clock_timer = QTimer(self); self.clock_timer.timeout.connect(self._update_clock); self.clock_timer.start(1000)
-        self.latest_hv_values = {} # 그래프 샘플링을 위해 최신 HV 값만 저장할 캐시
+        self.latest_hv_values = {}
         self.hv_graph_sampler_timer = QTimer(self)
         self.hv_graph_sampler_timer.timeout.connect(self._sample_hv_for_graph)
-        self.hv_graph_sampler_timer.start(60000) # 60초(1분)마다 실행
+        self.hv_graph_sampler_timer.start(60000)
         
         self._init_data()
         self._init_ui()
@@ -106,15 +102,15 @@ class MainWindow(QMainWindow):
 
         top_panel = QWidget()
         top_layout = QHBoxLayout(top_panel)
-        main_layout.addWidget(top_panel, 70)
+        main_layout.addWidget(top_panel, 8)
 
         bottom_panel = self._create_indicator_panel()
-        main_layout.addWidget(bottom_panel, 30)
+        main_layout.addWidget(bottom_panel, 2)
 
         graph_tab_panel = self._create_graph_tab_panel()
         hv_grid_panel = self._create_hv_grid_panel()
-        top_layout.addWidget(graph_tab_panel, 8)
-        top_layout.addWidget(hv_grid_panel, 2)
+        top_layout.addWidget(graph_tab_panel, 7)
+        top_layout.addWidget(hv_grid_panel, 3)
 
         shifter_text = self.config.get("shifter_name", "Unknown Shifter")
         self.shifter_label = QLabel(f" Shifter: {shifter_text} "); self.clock_label = QLabel()
@@ -143,15 +139,12 @@ class MainWindow(QMainWindow):
             for slot_str, board in crate_map.items():
                 slot_panel = self._create_hv_slot_graph_panel(int(slot_str), board['channels'])
                 tab_widget.addTab(slot_panel, f"HV Slot {slot_str} Graphs")
-        
         guide_panel = self._create_guide_panel()
         tab_widget.addTab(guide_panel, "Guide")
-        
         return tab_widget
 
     def _create_environment_panel(self):
-        container = QGroupBox("Environment Time-Series")
-        container.setFont(QFont("Arial", 12, QFont.Bold))
+        container = QGroupBox("Environment Time-Series"); container.setFont(QFont("Arial", 12, QFont.Bold))
         plot_layout = QGridLayout(container)
         self._create_ui_elements(plot_layout)
         return container
@@ -176,94 +169,63 @@ class MainWindow(QMainWindow):
                 display_config = display_channels.get(slot_str)
                 if display_config == "all": channels_to_display = range(board_info['channels'])
                 elif isinstance(display_config, list): channels_to_display = display_config
-                num_cols = 12
+                num_cols = 6
                 for i, ch in enumerate(channels_to_display):
                     widget = ChannelWidget(slot, ch)
+                    widget.setVisible(False) # <<< 변경점: 초기에 모든 위젯을 숨김
                     self.hv_channel_widgets[(slot, ch)] = widget
                     slot_layout.addWidget(widget, i // num_cols, i % num_cols)
         return hv_container_group
     
     def _create_hv_slot_graph_panel(self, slot, num_channels):
-        container = QWidget()
-        layout = QHBoxLayout(container)
-
+        container = QWidget(); layout = QHBoxLayout(container)
         def style_plot(plot_widget, title, y_label):
             plot_widget.setBackground('w'); plot_widget.setTitle(title, size='12pt')
             if num_channels <= 16: plot_widget.addLegend()
             plot_widget.showGrid(x=True, y=True, alpha=0.3); plot_widget.setAxisItems({'bottom': pg.DateAxisItem(orientation='bottom')})
             plot_widget.getAxis('left').setLabel(y_label); plot_widget.getAxis('bottom').setLabel('Time')
-
         v_plot = pg.PlotWidget(); style_plot(v_plot, f"Slot {slot} - Voltage (VMon)", "Voltage (V)")
         i_plot = pg.PlotWidget(); style_plot(i_plot, f"Slot {slot} - Current (IMon)", "Current (uA)")
-        
         layout.addWidget(v_plot); layout.addWidget(i_plot)
-
         self.hv_slot_curves[slot] = []
         cmap = pg.colormap.get('viridis'); colors = cmap.getLookupTable(nPts=num_channels)
-
         for ch in range(num_channels):
             color = colors[ch]
             v_curve = v_plot.plot(pen=pg.mkPen(color=color, width=2), name=f"CH{ch}")
             i_curve = i_plot.plot(pen=pg.mkPen(color=color, width=2), name=f"CH{ch}")
             self.hv_slot_curves[slot].append({'v': v_curve, 'i': i_curve})
-            
         return container
 
     def _create_indicator_panel(self):
-        indicator_group_box = QGroupBox("Real-time Indicators")
-        indicator_group_box.setFont(QFont("Arial", 12, QFont.Bold))
+        indicator_group_box = QGroupBox("Real-time Indicators"); indicator_group_box.setFont(QFont("Arial", 12, QFont.Bold))
         panel_layout = QHBoxLayout(indicator_group_box)
-        
-        # 왼쪽: 환경 센서 인디케이터
-        env_indicator_widget = QWidget()
-        env_indicator_layout = QHBoxLayout(env_indicator_widget)
+        env_indicator_widget = QWidget(); env_indicator_layout = QHBoxLayout(env_indicator_widget)
         env_indicator_layout.setAlignment(Qt.AlignLeft)
-        
-        env_groups = {"LS (NI-cDAQ)":["L_LS_Temp","R_LS_Temp","GdLS_level","GCLS_level"],"Magnetometer":["B_x","B_y","B_z","|B|"],"TH/O2 Sensor":["TH_O2_Temp","TH_O2_Humi","TH_O2_Oxygen"],
-                      "Arduino":["Temp1","Humi1","Temp2","Humi2","Dist"],"Radon":["Radon_Value","Radon_Status"]}
+        env_groups = {"LS (NI-cDAQ)":["L_LS_Temp","R_LS_Temp","GdLS_level","GCLS_level"],"Magnetometer":["B_x","B_y","B_z","|B|"],"TH/O2 Sensor":["TH_O2_Temp","TH_O2_Humi","TH_O2_Oxygen"], "Arduino":["Temp1","Humi1","Temp2","Humi2","Dist"],"Radon":["Radon_Value","Radon_Status"]}
         for title, labels in env_groups.items():
-            group_frame = QFrame(); group_frame.setFrameShape(QFrame.StyledPanel)
-            group_layout = QVBoxLayout(group_frame)
+            group_frame = QFrame(); group_frame.setFrameShape(QFrame.StyledPanel); group_layout = QVBoxLayout(group_frame)
             g_lbl = QLabel(title); g_lbl.setFont(QFont("Arial", 15, QFont.Bold)); group_layout.addWidget(g_lbl)
             for name in labels:
                 lbl = QLabel(f"{name.replace('_', ' ')}: -"); lbl.setFont(QFont("Arial", 13))
                 self.labels[name] = lbl; lbl.setVisible(False); group_layout.addWidget(lbl)
             group_layout.addStretch(1); env_indicator_layout.addWidget(group_frame)
-        
-        # 오른쪽: 노트/메모장
-        notes_group = QGroupBox("Notes")
-        notes_layout = QVBoxLayout(notes_group)
-        self.notes_edit = QTextEdit()
-        self.notes_edit.setReadOnly(True)
-        notes_layout.addWidget(self.notes_edit)
-        
+        notes_group = QGroupBox("Notes"); notes_layout = QVBoxLayout(notes_group)
+        self.notes_edit = QTextEdit(); self.notes_edit.setReadOnly(True); notes_layout.addWidget(self.notes_edit)
         try:
-            with open("notes.md", "r", encoding="utf-8") as f:
-                self.notes_edit.setMarkdown(f.read())
-        except FileNotFoundError:
-            self.notes_edit.setText("Project root folder에 notes.md 파일을 생성하세요.")
-            
-        panel_layout.addWidget(env_indicator_widget, 7) # 너비 70%
-        panel_layout.addWidget(notes_group, 3)          # 너비 30%
-
+            with open("notes.md", "r", encoding="utf-8") as f: self.notes_edit.setMarkdown(f.read())
+        except FileNotFoundError: self.notes_edit.setText("Project root folder에 notes.md 파일을 생성하세요.")
+        panel_layout.addWidget(env_indicator_widget, 7); panel_layout.addWidget(notes_group, 3)
         return indicator_group_box
     
     def _create_guide_panel(self):
-        guide_label = QLabel()
-        guide_label.setAlignment(Qt.AlignCenter)
-        guide_label.setScaledContents(True) # <<< 자동 크기 조절 활성화
-        
-        guide_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workers", "guide.png")
+        guide_label = QLabel(); guide_label.setAlignment(Qt.AlignCenter); guide_label.setScaledContents(True)
+        guide_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "guide.png")
         if os.path.exists(guide_path):
-            pixmap = QPixmap(guide_path)
-            guide_label.setPixmap(pixmap)
+            pixmap = QPixmap(guide_path); guide_label.setPixmap(pixmap)
         else:
-            guide_label.setText("Guide image (guide.png) not found in 'workers' folder.")
+            guide_label.setText("Guide image (guide.png) not found in project root folder.")
             guide_label.setFont(QFont("Arial", 16))
-        
-        scroll = QScrollArea()
-        scroll.setWidget(guide_label)
-        scroll.setWidgetResizable(True)
+        scroll = QScrollArea(); scroll.setWidget(guide_label); scroll.setWidgetResizable(True)
         return scroll
 
     def _create_plot_group(self, group_key, configs):
@@ -290,16 +252,13 @@ class MainWindow(QMainWindow):
         self.plots['arduino'] = self._create_plot_group('arduino',[('arduino_temp_humi',"Arduino Sensor","Value",["T1(°C)","H1(%)","T2(°C)","H2(%)"],[]), ('arduino_dist',"Distance","cm",["Dist(cm)"],[])])
         self.plots['radon'] = self._create_plot_group('radon',[('radon',"Radon (Bq/m³)","Bq/m³",["Radon (μ)"],[])])
         self.plots['mag'] = self._create_plot_group('mag',[('mag',"Magnetometer (mG)","mG",["Bx","By","Bz","|B|"],[])])
-        
         layout.addWidget(self.plots['daq_temp'], 0, 0); layout.addWidget(self.plots['th_o2'], 0, 1); layout.addWidget(self.plots['mag'], 0, 2)
         layout.addWidget(self.plots['daq_level'], 1, 0); layout.addWidget(self.plots['arduino'], 1, 1); layout.addWidget(self.plots['radon'], 1, 2)
-        
         for plot_widget in self.plots.values(): plot_widget.setVisible(True)
 
     def _convert_daq_voltage_to_distance(self, v, mapping_index):
         try:
-            daq_config = self.config.get('daq', {})
-            volt_module = next((mod for mod in daq_config.get('modules', []) if mod['task_type'] == 'volt'), None)
+            daq_config = self.config.get('daq', {}); volt_module = next((mod for mod in daq_config.get('modules', []) if mod['task_type'] == 'volt'), None)
             if volt_module:
                 m = volt_module['mapping'][mapping_index]
                 v_min, v_max = m['volt_range']; d_min, d_max = m['dist_range_mm']
@@ -309,8 +268,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _update_clock(self):
-        now = time.strftime('%Y-%m-%d %H:%M:%S')
-        self.clock_label.setText(f" {now} ")
+        now = time.strftime('%Y-%m-%d %H:%M:%S'); self.clock_label.setText(f" {now} ")
 
     @pyqtSlot(str)
     def _update_radon_status(self, status_text):
@@ -325,17 +283,23 @@ class MainWindow(QMainWindow):
             for channel, params in slot_data.items():
                 key = (slot, channel)
                 
-                # 실시간 그리드 UI 업데이트 (1초마다)
                 if key in self.hv_channel_widgets:
-                    self.hv_channel_widgets[key].update_status(params)
-
-                # 그래프용 최신 값 캐시 업데이트 (1초마다)
+                    widget = self.hv_channel_widgets[key]
+                    power_status = params.get('Pw', False)
+                    
+                    # <<< 변경점: 전원 상태에 따라 위젯을 보이거나 숨김
+                    if widget.isVisible() != power_status:
+                        widget.setVisible(power_status)
+                    
+                    # 보이는 위젯만 상태 업데이트
+                    if power_status:
+                        widget.update_status(params)
+                
                 self.latest_hv_values[key] = {
                     'VMon': params.get('VMon', np.nan),
                     'IMon': params.get('IMon', np.nan)
                 }
                 
-                # DB 저장용 데이터 준비 (1초마다)
                 db_data_to_queue.append({'type': 'HV', 'data': (timestamp, slot, channel, params.get('Pw'), 
                                      params.get('VMon'), params.get('IMon'), params.get('V0Set'), 
                                      params.get('I0Set'), params.get('Status'))})
@@ -345,24 +309,17 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(bool)
     def _update_hv_connection(self, is_connected):
-        status = "Connected" if is_connected else "Disconnected"
-        logging.info(f"HV Connection Status Changed: {status}")
+        status = "Connected" if is_connected else "Disconnected"; logging.info(f"HV Connection Status Changed: {status}")
 
     @pyqtSlot()
     def _sample_hv_for_graph(self):
         current_time = time.time()
-        
-        # 1분마다 캐시된 최신 값으로 그래프 데이터 포인트 추가
         for (slot, ch), values in self.latest_hv_values.items():
             if slot in self.hv_graph_data:
                 ptr = self.pointers['hv_graph'].get(slot, 0)
-                
-                # 해당 채널의 VMon과 IMon 값을 업데이트
                 self.hv_graph_data[slot][ptr, 0] = current_time
                 self.hv_graph_data[slot][ptr, 1 + ch * 2] = values['VMon']
                 self.hv_graph_data[slot][ptr, 2 + ch * 2] = values['IMon']
-                
-        # 모든 슬롯의 포인터를 한 번에 업데이트하고 dirty flag 설정
         for slot in self.hv_graph_data.keys():
             self.pointers['hv_graph'][slot] = (self.pointers['hv_graph'].get(slot, 0) + 1) % self.max_lens['hv_graph']
             self.plot_dirty_flags[f"hv_slot_{slot}"] = True
@@ -419,6 +376,23 @@ class MainWindow(QMainWindow):
         ptr = self.pointers['radon']; self.radon_data[ptr] = [ts, mu]
         self.pointers['radon'] = (ptr + 1) % self.max_lens['radon']
         self.plot_dirty_flags["radon_Radon (μ)"] = True
+        self.latest_raw_values["Radon_Value"] = f"Value: {mu:.2f} ± {sigma:.2f}"
+    
+    @pyqtSlot(dict)
+    def update_radon_data(self, data):
+    # 이 새로운 슬롯이 그래프와 UI 업데이트를 모두 처리합니다.
+        ts = data['ts']
+        mu = data['mu']
+        sigma = data['sigma']
+    
+        # 그래프 데이터 업데이트 (이전과 동일한 로직)
+        ptr = self.pointers['radon']; self.radon_data[ptr] = [ts, mu]
+        self.pointers['radon'] = (ptr + 1) % self.max_lens['radon']
+        self.plot_dirty_flags["radon_Radon (μ)"] = True
+
+        # 실시간 인디케이터 업데이트
+        self.latest_raw_values["Radon_Value"] = f"Radon Value: {mu:.2f} Bq/m³"
+        self.latest_raw_values["Radon_Status"] = f"Status: Measured"
 
     @pyqtSlot(float, list)
     def update_mag_ui(self, ts, mag):
@@ -472,8 +446,7 @@ class MainWindow(QMainWindow):
         for key in dirty_keys:
             if key.startswith("hv_slot_"):
                 slot = int(key.split('_')[-1])
-                plot_data = self.hv_graph_data.get(slot)
-                curves = self.hv_slot_curves.get(slot)
+                plot_data = self.hv_graph_data.get(slot); curves = self.hv_slot_curves.get(slot)
                 if plot_data is not None and curves is not None:
                     num_channels = self.config['caen_hv']['crate_map'][str(slot)]['channels']
                     for ch in range(num_channels):
@@ -483,16 +456,13 @@ class MainWindow(QMainWindow):
             elif key in self.curves and key in self.curve_data_map:
                 x_data, y_data = self.curve_data_map[key]
                 self.curves[key].setData(x=x_data, y=y_data, connect='finite')
-        
         self.plot_dirty_flags.clear()
-
         for key, text in self.latest_raw_values.items():
             if key in self.labels: self.labels[key].setText(text)
         self.latest_raw_values.clear()
 
     def show_error(self, msg):
-        logging.error(f"GUI Error: {msg}")
-        QTimer.singleShot(0, lambda: QMessageBox.critical(self, "Error", msg))
+        logging.error(f"GUI Error: {msg}"); QTimer.singleShot(0, lambda: QMessageBox.critical(self, "Error", msg))
 
     def _init_tray_icon(self):
         self.tray_icon = QSystemTrayIcon(self)
@@ -527,12 +497,8 @@ class MainWindow(QMainWindow):
             QMetaObject.invokeMethod(self.hw_manager, "stop_scan", Qt.QueuedConnection)
             self.hw_thread.quit()
             if not self.hw_thread.wait(3000): logging.warning("HardwareManager thread did not finish cleanly.")
-        logging.info("All threads stopped. Exiting.")
-        event.accept()
+        logging.info("All threads stopped. Exiting."); event.accept()
 
-# ====================================================================================
-# Main Entry Point
-# ====================================================================================
 if __name__ == '__main__':
     load_config()
     log_level = CONFIG.get('logging_level', 'INFO').upper()

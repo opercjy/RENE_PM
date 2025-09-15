@@ -110,7 +110,7 @@ def check_visa_devices(config):
         return
 
     # 시도할 VISA 백엔드 목록 (플랫폼 호환성 개선)
-    backends_to_try = ['@py', '@ni']
+    backends_to_try = ['@ni', '@py']
     device_found_and_communicated = False
 
     for backend in backends_to_try:
@@ -123,7 +123,7 @@ def check_visa_devices(config):
             target_resource = None
             for res in resources:
                 # USB 리소스 문자열에서 Vendor/Product ID를 추출하여 비교
-                match = re.search(r'USB[0-9]*::0x([0-9A-Fa-f]+)::0x([0-9A-Fa-f]+)::', res, re.IGNORECASE)
+                match = re.search(r'USB[0-9]*::([0-9A-Fa-f]+)::([0-9A-Fa-f]+)::', res, re.IGNORECASE)
                 if match:
                     res_vid, res_pid = match.groups()
                     if res_vid.lower() == vendor_id.lower().replace('0x', '') and \
