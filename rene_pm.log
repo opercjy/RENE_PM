@@ -1,0 +1,36 @@
+2025-09-15 22:23:43,400 - INFO - [MainThread] - ==================================================
+RENE-PM Integrated Monitoring System Starting
+==================================================
+2025-09-15 22:23:43,661 - INFO - [Dummy-1] - HardwareManager scan started in a new thread.
+2025-09-15 22:23:43,661 - INFO - [Dummy-2] - Connecting to CAEN HV at 192.168.0.39...
+2025-09-15 22:23:43,661 - INFO - [Dummy-3] - Database connection established.
+2025-09-15 22:23:43,666 - INFO - [Dummy-3] - Database tables are ready.
+2025-09-15 22:23:43,667 - INFO - [Dummy-3] - Database worker started.
+2025-09-15 22:23:43,759 - INFO - [Dummy-2] - Successfully connected to CAEN HV system.
+2025-09-15 22:23:43,763 - INFO - [MainThread] - HV Connection Status Changed: Connected
+2025-09-15 22:23:45,867 - INFO - [Dummy-6] - Arduino worker started with 2000ms interval.
+2025-09-15 22:23:45,873 - INFO - [Dummy-7] - TH/O2 worker started with 2000ms interval.
+2025-09-15 22:23:45,879 - INFO - [Dummy-8] - [Magnetometer] Successfully connected to device.
+2025-09-15 22:23:45,906 - INFO - [Dummy-9] - Activated module LS_Temperature (SN: 015362E3) as cDAQ1Mod1
+2025-09-15 22:23:45,906 - INFO - [Dummy-9] - Activated module LS_Level (SN: 21A3509) as cDAQ1Mod2
+2025-09-15 22:24:43,832 - INFO - [Dummy-3] - Successfully inserted batch of 5666 items.
+2025-09-15 22:25:43,844 - INFO - [Dummy-3] - Successfully inserted batch of 5862 items.
+2025-09-15 22:26:43,863 - INFO - [Dummy-3] - Successfully inserted batch of 5670 items.
+2025-09-15 22:27:43,876 - INFO - [Dummy-3] - Successfully inserted batch of 5862 items.
+2025-09-15 22:28:43,875 - INFO - [Dummy-3] - Successfully inserted batch of 5574 items.
+2025-09-15 22:29:43,887 - INFO - [Dummy-3] - Successfully inserted batch of 5862 items.
+2025-09-15 22:30:01,904 - INFO - [MainThread] - Application closing...
+2025-09-15 22:30:01,905 - INFO - [Dummy-3] - Processing remaining items before stopping DB worker.
+2025-09-15 22:30:01,905 - INFO - [Dummy-3] - DB connection closed.
+2025-09-15 22:30:01,906 - INFO - [Dummy-2] - CAEN device closed.
+2025-09-15 22:30:01,918 - INFO - [Dummy-7] - TH/O2 worker stopped and client closed.
+2025-09-15 22:30:01,947 - INFO - [Dummy-6] - Arduino worker stopped and serial port closed.
+2025-09-15 22:30:07,905 - WARNING - [MainThread] - db worker thread did not finish cleanly.
+2025-09-15 22:30:13,905 - WARNING - [MainThread] - caen_hv worker thread did not finish cleanly.
+2025-09-15 22:30:19,906 - WARNING - [MainThread] - magnetometer worker thread did not finish cleanly.
+2025-09-15 22:30:25,906 - WARNING - [MainThread] - arduino worker thread did not finish cleanly.
+2025-09-15 22:30:31,906 - WARNING - [MainThread] - daq worker thread did not finish cleanly.
+2025-09-15 22:30:37,907 - WARNING - [MainThread] - radon worker thread did not finish cleanly.
+2025-09-15 22:30:43,907 - WARNING - [MainThread] - th_o2 worker thread did not finish cleanly.
+2025-09-15 22:30:43,907 - INFO - [MainThread] - All threads stopped. Exiting.
+2025-09-15 22:30:43,976 - ERROR - [MainThread] - GUI Error: Magnetometer Communication Error: Invalid session handle. The resource might be closed.

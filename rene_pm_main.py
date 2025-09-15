@@ -474,10 +474,10 @@ class MainWindow(QMainWindow):
         tray_menu = QMenu(); tray_menu.addAction(show_action); tray_menu.addAction(quit_action)
         self.tray_icon.setContextMenu(tray_menu); self.tray_icon.show()
 
-    def changeEvent(self, event):
+    """def changeEvent(self, event):
         if event.type() == event.WindowStateChange:
             if self.isMinimized(): self.hide(); event.ignore()
-            else: super().changeEvent(event)
+            else: super().changeEvent(event)"""
 
     def closeEvent(self, event):
         logging.info("Application closing...")
@@ -491,7 +491,7 @@ class MainWindow(QMainWindow):
                     QMetaObject.invokeMethod(worker, stop_method_name, Qt.QueuedConnection)
         for name in active_threads:
             thread, worker = self.threads.get(name, (None, None))
-            if thread and not thread.wait(4000):
+            if thread and not thread.wait(6000):
                 logging.warning(f"{name} worker thread did not finish cleanly.")
         if hasattr(self, 'hw_thread'):
             QMetaObject.invokeMethod(self.hw_manager, "stop_scan", Qt.QueuedConnection)

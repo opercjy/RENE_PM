@@ -64,6 +64,7 @@ class HardwareManager(QObject):
         except serial.SerialException:
             return False
 
+    @pyqtSlot()
     def stop_scan(self):
         self.timer.stop()
         if self.pyvisa_rm:
