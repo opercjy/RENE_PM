@@ -12,8 +12,8 @@ class HVWorker(QObject):
     data_ready = pyqtSignal(dict)
     error_occurred = pyqtSignal(str)
     connection_status = pyqtSignal(bool)
-    # === 변경점 1: 제어 명령의 결과를 GUI로 알리기 위한 신호 추가 ===
     control_command_status = pyqtSignal(str)
+    setpoints_ready = pyqtSignal(dict)
 
     def __init__(self, config):
         super().__init__()
@@ -75,6 +75,17 @@ class HVWorker(QObject):
             self.error_occurred.emit(f"CAEN Communication Error: {e}")
             self.polling_timer.stop()
             self.connection_status.emit(False)
+
+    @pyqtSlot(int, int)
+    def fetch_setpoints(self, slot, channel):
+        if not self.device:
+            return
+        try:
+            v0set = self.device.get_ch_param(slot, [channel], 'V0Set')[0]
+            i0set = self.device.get_ch_param(slot, [channel], 'I0Set')[0]
+            self.setpoints_ready.emit({'V0Set': float(v0set), 'I0Set': float(i0set)})
+        except Exception as e:
+            logging.warning(f"Could not fetch setpoints for S{slot}C{channel}: {e}")
 
     # === 변경점 2: GUI로부터 제어 명령을 받아 처리하는 슬롯 추가 ===
     @pyqtSlot(dict)

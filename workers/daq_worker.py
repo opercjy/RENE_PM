@@ -22,7 +22,8 @@ class DaqWorker(QObject):
         self.sampling_rate = self.config.get('sampling_rate', 1000)
         self.active_modules = []
         self.channel_map = {'rtd': [], 'volt': []}
-        self.temp_samples = {}
+        # === 변경점: DB 저장용 샘플과 GUI용 샘플을 분리 ===
+        self.db_samples = {}
 
     def _find_modules_by_sn(self):
         try:
@@ -32,18 +33,17 @@ class DaqWorker(QObject):
                 sn_int = int(sn_str, 16)
                 if sn_int in connected_devices:
                     dev_name = connected_devices[sn_int]
-                    module_info = module_config.copy()
-                    module_info['device_name'] = dev_name
+                    module_info = module_config.copy(); module_info['device_name'] = dev_name
                     self.active_modules.append(module_info)
                     full_ch_names = [f"{dev_name}/{ch}" for ch in module_config['channels']]
                     self.channel_map[module_config['task_type']].extend(full_ch_names)
-                    for ch in full_ch_names: self.temp_samples[ch] = []
+                    # === 변경점: db_samples 초기화 ===
+                    for ch in full_ch_names: self.db_samples[ch] = []
                     logging.info(f"Activated module {module_config['role']} (SN: {sn_str}) as {dev_name}")
             if not self.active_modules: raise RuntimeError("No DAQ modules specified in the config were found.")
             return True
         except Exception as e:
-            self.error_occurred.emit(f"DAQ module scan error: {e}")
-            return False
+            self.error_occurred.emit(f"DAQ module scan error: {e}"); return False
 
     @pyqtSlot()
     def run(self):
@@ -51,9 +51,7 @@ class DaqWorker(QObject):
         while self._is_running:
             try:
                 with nidaqmx.Task() as task:
-                    self._configure_task(task)
-                    task.start()
-                    self._read_loop(task)
+                    self._configure_task(task); task.start(); self._read_loop(task)
             except nidaqmx.errors.DaqError as e:
                 if not self._is_running: break
                 self.error_occurred.emit(f"NI-DAQ Error: {e}. Retrying in 10 seconds..."); time.sleep(10)
@@ -69,6 +67,7 @@ class DaqWorker(QObject):
     def _read_loop(self, task):
         all_channels = self.channel_map['rtd'] + self.channel_map['volt']
         while self._is_running:
+            ts = time.time()
             data = task.read(number_of_samples_per_channel=self.sampling_rate)
             means = [np.mean(ch) for ch in data]
             raw_data_dict = dict(zip(all_channels, means))
@@ -78,30 +77,58 @@ class DaqWorker(QObject):
                     full_ch_name = f"{mod['device_name']}/{ch_name}"
                     if full_ch_name in raw_data_dict: raw_data_for_ui[mod['task_type']].append(raw_data_dict[full_ch_name])
             self.raw_data_ready.emit(raw_data_for_ui)
-            self._process_averaging(raw_data_dict)
+            self._process_and_enqueue(ts, raw_data_dict)
 
-    def _process_averaging(self, raw_dict):
-        for ch, val in raw_dict.items(): self.temp_samples[ch].append(val)
-        first_ch = next(iter(self.temp_samples), None)
-        if first_ch and len(self.temp_samples[first_ch]) >= 60:
-            ts = time.time(); avg_data = {ch: np.mean(s) for ch, s in self.temp_samples.items()}
-            avg_rtd_volt = {'rtd': [], 'volt': []}
+    def _process_and_enqueue(self, ts, raw_dict):
+        for ch, val in raw_dict.items(): self.db_samples[ch].append(val)
+        first_ch = next(iter(self.db_samples), None)
+        if first_ch and len(self.db_samples[first_ch]) >= 60:
+            # GUI 그래프용 평균값 계산 및 전송
+            avg_data_for_gui = {ch: np.mean(s) for ch, s in self.db_samples.items()}
+            self._emit_avg_data(avg_data_for_gui)
+
+            # === 핵심 변경점: DB에는 '마지막 1초 평균값(raw_dict)'을 저장 ===
+            rtd_vals = []; volt_vals = []
             for mod in self.active_modules:
                 for ch in mod['channels']:
                     full_ch_name = f"{mod['device_name']}/{ch}"
-                    if full_ch_name in avg_data: avg_rtd_volt[mod['task_type']].append(avg_data[full_ch_name])
-            distances, volt_idx = [], 0
+                    if full_ch_name in raw_dict:
+                        if mod['task_type'] == 'rtd': rtd_vals.append(raw_dict[full_ch_name])
+                        elif mod['task_type'] == 'volt': volt_vals.append(raw_dict[full_ch_name])
+            
+            distances = []
+            volt_idx = 0
             for mod in self.active_modules:
                 if mod['task_type'] == 'volt':
                     for i in range(len(mod['channels'])):
-                        distances.append(self.convert_voltage_to_distance(avg_rtd_volt['volt'][volt_idx], mod['mapping'][i])); volt_idx += 1
-            avg_rtd_volt['dist'] = distances
-            self.avg_data_ready.emit(ts, avg_rtd_volt)
-            self._enqueue_db_data(ts, avg_rtd_volt['rtd'], distances)
-            for ch in self.temp_samples: self.temp_samples[ch].clear()
+                        distances.append(self.convert_voltage_to_distance(volt_vals[volt_idx], mod['mapping'][i]))
+                        volt_idx += 1
+
+            self._enqueue_db_data(ts, rtd_vals, distances)
+            for ch in self.db_samples: self.db_samples[ch].clear()
+
+    def _emit_avg_data(self, avg_data):
+        avg_rtd_volt = {'rtd': [], 'volt': []}
+        for mod in self.active_modules:
+            for ch in mod['channels']:
+                full_ch_name = f"{mod['device_name']}/{ch}"
+                if full_ch_name in avg_data: avg_rtd_volt[mod['task_type']].append(avg_data[full_ch_name])
+        
+        distances, volt_idx = [], 0
+        for mod in self.active_modules:
+            if mod['task_type'] == 'volt':
+                for i in range(len(mod['channels'])):
+                    distances.append(self.convert_voltage_to_distance(avg_rtd_volt['volt'][volt_idx], mod['mapping'][i]))
+                    volt_idx += 1
+        avg_rtd_volt['dist'] = distances
+        self.avg_data_ready.emit(time.time(), avg_rtd_volt)
 
     def _enqueue_db_data(self, ts, rtd_vals, dist_vals):
-        data = (time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts)), round(rtd_vals[0], 2) if rtd_vals else None, round(rtd_vals[1], 2) if len(rtd_vals) > 1 else None, round(dist_vals[0], 1) if dist_vals else None, round(dist_vals[1], 1) if len(dist_vals) > 1 else None)
+        data = (time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts)),
+                round(rtd_vals[0], 2) if rtd_vals else None,
+                round(rtd_vals[1], 2) if len(rtd_vals) > 1 else None,
+                round(dist_vals[0], 1) if dist_vals else None,
+                round(dist_vals[1], 1) if len(dist_vals) > 1 else None)
         self.data_queue.put({'type': 'DAQ', 'data': data})
 
     def convert_voltage_to_distance(self, v, m):

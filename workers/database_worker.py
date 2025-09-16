@@ -8,7 +8,6 @@ from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer
 class DatabaseWorker(QObject):
     status_update = pyqtSignal(str)
     error_occurred = pyqtSignal(str)
-    # ... (SQL INSERT, TABLE_SCHEMAS 등은 이전과 동일) ...
     SQL_INSERT = {
         'DAQ': "INSERT IGNORE INTO LS_DATA (`datetime`, `RTD_1`, `RTD_2`, `DIST_1`, `DIST_2`) VALUES (?, ?, ?, ?, ?)",
         'RADON': "INSERT IGNORE INTO RADON_DATA (`datetime`, `mu`, `sigma`) VALUES (?, ?, ?)",
@@ -20,39 +19,38 @@ class DatabaseWorker(QObject):
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
     }
+    # === 변경점: 모든 테이블에 datetime 인덱스 생성 구문 추가 ===
     TABLE_SCHEMAS = [
         """CREATE TABLE IF NOT EXISTS LS_DATA (
             `datetime` DATETIME NOT NULL PRIMARY KEY, `RTD_1` FLOAT NULL, `RTD_2` FLOAT NULL,
             `DIST_1` FLOAT NULL, `DIST_2` FLOAT NULL
-        );""",
+        );""", "CREATE INDEX IF NOT EXISTS idx_ls_datetime ON LS_DATA (datetime);",
         """CREATE TABLE IF NOT EXISTS RADON_DATA (
             `datetime` DATETIME NOT NULL PRIMARY KEY, `mu` FLOAT NULL, `sigma` FLOAT NULL
-        );""",
+        );""", "CREATE INDEX IF NOT EXISTS idx_radon_datetime ON RADON_DATA (datetime);",
         """CREATE TABLE IF NOT EXISTS MAGNETOMETER_DATA (
             `datetime` DATETIME NOT NULL PRIMARY KEY, `Bx` FLOAT NULL, `By` FLOAT NULL,
             `Bz` FLOAT NULL, `B_mag` FLOAT NULL
-        );""",
+        );""", "CREATE INDEX IF NOT EXISTS idx_mag_datetime ON MAGNETOMETER_DATA (datetime);",
         """CREATE TABLE IF NOT EXISTS TH_O2_DATA (
             `datetime` DATETIME NOT NULL PRIMARY KEY, `temperature` FLOAT NULL,
             `humidity` FLOAT NULL, `oxygen` FLOAT NULL
-        );""",
+        );""", "CREATE INDEX IF NOT EXISTS idx_tho2_datetime ON TH_O2_DATA (datetime);",
         """CREATE TABLE IF NOT EXISTS ARDUINO_DATA (
             `datetime` DATETIME NOT NULL PRIMARY KEY, `analog_1` FLOAT NULL, `analog_2` FLOAT NULL,
             `analog_3` FLOAT NULL, `analog_4` FLOAT NULL, `analog_5` FLOAT NULL,
             `digital_status` INT NULL, `message` VARCHAR(255) NULL
-        );""",
+        );""", "CREATE INDEX IF NOT EXISTS idx_arduino_datetime ON ARDUINO_DATA (datetime);",
         """CREATE TABLE IF NOT EXISTS HV_DATA (
             `datetime` DATETIME, `slot` INT, `channel` INT, `power` BOOLEAN, `vmon` FLOAT, `imon` FLOAT,
             `v0set` FLOAT, `i0set` FLOAT, `status` INT, PRIMARY KEY (`datetime`, `slot`, `channel`)
-        );"""
+        );""", "CREATE INDEX IF NOT EXISTS idx_hv_datetime ON HV_DATA (datetime);"
     ]
 
-
-        # === 변경점 1: __init__에서 db_config도 함께 받도록 수정 ===
     def __init__(self, db_pool, db_config, data_queue: queue.Queue):
         super().__init__()
         self.db_pool = db_pool
-        self.db_config = db_config # 데이터베이스 이름을 알기 위해 config 저장
+        self.db_config = db_config
         self.data_queue = data_queue
         self._is_running = True
         self.batch_timer = QTimer(self)
@@ -62,20 +60,18 @@ class DatabaseWorker(QObject):
         conn = None
         try:
             conn = self.db_pool.get_connection()
-            # === 변경점 2: 연결 사용 전, 데이터베이스 지정 ===
             conn.database = self.db_config['database']
             cursor = conn.cursor()
             for schema in self.TABLE_SCHEMAS:
                 cursor.execute(schema)
             conn.commit()
-            logging.info("Database tables are ready.")
+            logging.info("Database tables and indexes are ready.")
             return True
         except mariadb.Error as e:
-            self.error_occurred.emit(f"DB Table Setup Error: {e}")
+            self.error_occurred.emit(f"DB Table/Index Setup Error: {e}")
             return False
         finally:
-            if conn:
-                conn.close()
+            if conn: conn.close()
 
     @pyqtSlot()
     def run(self):
@@ -103,7 +99,6 @@ class DatabaseWorker(QObject):
         conn = None
         try:
             conn = self.db_pool.get_connection()
-            # === 변경점 3: 배치 처리 시에도 데이터베이스 지정 ===
             conn.database = self.db_config['database']
             cursor = conn.cursor()
             for type_key, data_list in batch.items():

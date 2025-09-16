@@ -1,7 +1,7 @@
 # workers/arduino_worker.py
 
 import time, numpy as np, logging, serial
-from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer # pyqtSlot 임포트
+from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer
 
 class ArduinoWorker(QObject):
     avg_data_ready = pyqtSignal(float, dict)
@@ -33,39 +33,43 @@ class ArduinoWorker(QObject):
     def measure(self):
         if not (self.ser and self.ser.is_open): return
         try:
+            ts = time.time()
             line = self.ser.readline().decode('utf-8').strip()
             if line:
                 data = {}
                 for pair in line.split(','):
                     if ':' in pair:
                         key, val_str = pair.split(':', 1)
-                        key = key.strip()
-                        val_str = val_str.strip()
+                        key = key.strip(); val_str = val_str.strip()
                         if key in self.samples:
                             data[key] = None if val_str.upper() == 'NONE' else float(val_str)
                 
                 if data:
                     self.raw_data_ready.emit({'arduino': data})
-                    self._process_averaging(data)
+                    self._process_and_enqueue(ts, data)
         except Exception as e:
             logging.warning(f"Arduino parsing error: {e}. Raw: '{line}'")
 
-    def _process_averaging(self, data):
-        for key, val in data.items():
+    def _process_and_enqueue(self, ts, raw_data):
+        # 1. GUI 그래프용 데이터 샘플링
+        for key, val in raw_data.items():
             if val is not None and key in self.samples:
                 self.samples[key].append(val)
         
+        # 2. DB 저장 및 GUI 그래프 업데이트 주기 확인 (약 30초)
         first_key = next(iter(self.samples), None)
         if first_key and len(self.samples[first_key]) >= (30 / (self.interval / 1000)):
-            ts = time.time()
-            avg_data = {}
+            # GUI 그래프용 평균값 계산 및 전송
+            avg_data_for_gui = {}
             for key, val_list in self.samples.items():
                 if val_list:
-                    avg_data[key] = np.mean(val_list)
-
-            self.avg_data_ready.emit(ts, avg_data)
-            self._enqueue_db_data(ts, avg_data)
+                    avg_data_for_gui[key] = np.mean(val_list)
+            self.avg_data_ready.emit(time.time(), avg_data_for_gui)
             
+            # === 핵심 변경점: DB에는 평균이 아닌, '방금 들어온 마지막 값(raw_data)'을 저장 ===
+            self._enqueue_db_data(ts, raw_data)
+            
+            # 샘플 초기화
             self.samples = {key: [] for key in self.samples.keys()}
 
     def _enqueue_db_data(self, ts, data):
