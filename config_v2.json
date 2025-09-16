@@ -2,7 +2,8 @@
     "logging_level": "INFO",
     "shifter_name": "Jiyoung CHOI (Chonnam Nat'l Univ.)",
     "gui": {
-        "max_data_points_days": 7
+        "max_data_points_days": 7,
+        "max_log_lines": 2000
     },
     "database": {
         "enabled": true,
@@ -59,7 +60,11 @@
         "port": "/dev/ttyUSB1",
         "baudrate": 19200,
         "interval_s": 600,
-        "stabilization_s": 600
+        "stabilization_s": 600,
+        "unit_change_on_start": false,
+        "reset_on_start": false,
+        "init_command": "RESET",
+        "unit_command": "UNIT 1"
     },
     "magnetometer": {
         "enabled": true,

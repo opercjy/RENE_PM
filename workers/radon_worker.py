@@ -16,55 +16,69 @@ class RadonWorker(QObject):
         self.data_queue = data_queue
         self.ser = None
         
-        # === 변경점 1: 상태 업데이트를 위한 타이머들 분리 및 명확화 ===
-        self.stabilization_timer = QTimer(self)
-        self.stabilization_timer.timeout.connect(self._update_stabilization_countdown)
-        
-        self.measurement_timer = QTimer(self)
-        self.measurement_timer.timeout.connect(self.measure)
-        
-        self.status_countdown_timer = QTimer(self) # 다음 측정까지 남은 시간을 보여주기 위한 1초짜리 타이머
-        self.status_countdown_timer.timeout.connect(self._update_measurement_countdown)
+        self.countdown_timer = QTimer(self)
+        self.countdown_timer.timeout.connect(self._update_countdown)
 
         self.interval = int(config.get('interval_s', 600))
         self.countdown_seconds = 0
+        self.is_stabilizing = True
 
     @pyqtSlot()
     def start_worker(self):
+        logging.debug("[RadonWorker] start_worker() called.")
         try:
             self.ser = serial.Serial(self.config['port'], 19200, timeout=10)
+            
+            if self.config.get("unit_change_on_start", False):
+                self.radon_status_update.emit("Sending setup commands...")
+                
+                if self.config.get("reset_on_start", False):
+                    init_cmd = self.config.get("init_command", "")
+                    if init_cmd:
+                        logging.info(f"Sending Radon Init Command: {init_cmd}")
+                        self.ser.write(f"{init_cmd}\r\n".encode())
+                        time.sleep(2)
+                
+                unit_cmd = self.config.get("unit_command", "")
+                if unit_cmd:
+                    logging.info(f"Sending Radon Unit Command: {unit_cmd}")
+                    self.ser.write(f"{unit_cmd}\r\n".encode())
+                    time.sleep(1)
+            
+            self.is_stabilizing = True
             self.countdown_seconds = self.config.get('stabilization_s', 600)
             status_msg = f"Stabilizing ({self.countdown_seconds}s left)..."
             self.radon_status_update.emit(status_msg)
-            self.stabilization_timer.start(1000)
+            self.countdown_timer.start(1000)
+            
         except serial.SerialException as e:
             self.error_occurred.emit(f"Radon Error: {e}")
             self.radon_status_update.emit("Connection Error")
 
-    def _update_stabilization_countdown(self):
-        self.countdown_seconds -= 1
-        status_msg = f"Stabilizing ({self.countdown_seconds}s left)..."
-        self.radon_status_update.emit(status_msg)
+    def _update_countdown(self):
+        if self.countdown_seconds > 0:
+            self.countdown_seconds -= 1
+            if self.is_stabilizing:
+                status_msg = f"Stabilizing ({self.countdown_seconds}s left)..."
+            else:
+                status_msg = f"Measured. Next in {self.countdown_seconds}s..."
+            self.radon_status_update.emit(status_msg)
         
         if self.countdown_seconds <= 0:
-            self.stabilization_timer.stop()
-            self.radon_status_update.emit("Measuring...")
-            self.measurement_timer.start(self.interval * 1000)
-            self.measure() # 안정화 후 첫 측정 즉시 실행
-
-    # === 변경점 2: 다음 측정까지 남은 시간을 주기적으로 업데이트하는 슬롯 추가 ===
-    def _update_measurement_countdown(self):
-        self.countdown_seconds -= 1
-        status_msg = f"Measured. Next in {self.countdown_seconds}s..."
-        self.radon_status_update.emit(status_msg)
-        if self.countdown_seconds <= 0:
-            self.status_countdown_timer.stop()
+            if self.is_stabilizing:
+                self.is_stabilizing = False
+                self.measure()
+            else:
+                self.measure()
 
     def measure(self):
         if not (self.ser and self.ser.is_open): return
+        
+        self.radon_status_update.emit("Measuring...")
+        
         try:
-            self.radon_status_update.emit("Measuring...")
             self.ser.write(b'VALUE?\r\n')
+            time.sleep(0.5)
             res = self.ser.readline().decode('ascii', 'ignore').strip()
             
             if res and "VALUE" in res:
@@ -75,21 +89,16 @@ class RadonWorker(QObject):
                 self.data_ready.emit(ts, mu, sigma) 
                 self._enqueue_db_data(ts, mu, sigma)
                 
-                # === 변경점 3: 측정 성공 후, 카운트다운 시작 및 상태 업데이트 ===
                 self.countdown_seconds = self.interval
-                status_msg = f"Measured. Next in {self.countdown_seconds}s..."
-                self.radon_status_update.emit(status_msg)
-                
-                if not self.status_countdown_timer.isActive():
-                    self.status_countdown_timer.start(1000)
-
+                self.radon_status_update.emit(f"Measured. Next in {self.countdown_seconds}s...")
             else:
                 logging.warning(f"Radon device returned no data or invalid data: '{res}'")
-                self.radon_status_update.emit("Device not responding")
-
+                self.radon_status_update.emit(f"Read failed. Retrying...")
+                self.countdown_seconds = self.interval
         except Exception as e:
-            logging.error(f"Radon parsing error: {e}")
-            self.radon_status_update.emit("Parsing Error")
+            logging.error(f"Radon parsing/comm error: {e}")
+            self.radon_status_update.emit(f"Error. Retrying...")
+            self.countdown_seconds = self.interval
 
     def _enqueue_db_data(self, ts, mu, sigma):
         dt_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))
@@ -97,8 +106,6 @@ class RadonWorker(QObject):
 
     @pyqtSlot()
     def stop_worker(self):
-        self.stabilization_timer.stop()
-        self.measurement_timer.stop()
-        self.status_countdown_timer.stop()
+        self.countdown_timer.stop()
         if self.ser:
             self.ser.close()
