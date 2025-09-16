@@ -5,9 +5,11 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QGridLayout, QH
                              QMessageBox, QLabel, QFrame, QStatusBar, QGroupBox, QTabWidget, QScrollArea,
                              QSystemTrayIcon, QStyle, QAction, qApp, QMenu, QTextEdit, QPushButton,
                              QDateEdit, QComboBox, QFormLayout, QSpinBox, QDoubleSpinBox, QGraphicsView, 
-                             QGraphicsScene, QGraphicsPixmapItem)
-from PyQt5.QtCore import QThread, QObject, pyqtSignal, pyqtSlot, Qt, QTimer, QMetaObject, QDate
-from PyQt5.QtGui import QFont, QColor, QPalette, QIcon, QPixmap, QTextCursor, QPainter
+                             QGraphicsScene, QGraphicsPixmapItem, QGraphicsTextItem, QGraphicsEllipseItem, 
+                             QGraphicsItemGroup, QGraphicsObject)
+from PyQt5.QtCore import (QThread, QObject, pyqtSignal, pyqtSlot, Qt, QTimer, QMetaObject, QDate, 
+                          QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup, QRectF)
+from PyQt5.QtGui import (QFont, QColor, QPalette, QIcon, QPixmap, QTextCursor, QPainter, QBrush, QPen)
 import pyqtgraph as pg
 
 import mariadb
@@ -65,6 +67,31 @@ class ChannelWidget(QFrame):
             self.vmon_label.setText(f"{vmon:.1f} V"); self.imon_label.setText(f"{imon:.2f} uA")
         palette.setColor(self.backgroundRole(), color); palette.setColor(QPalette.WindowText, text_color); self.setPalette(palette)
 
+class HighlightMarker(QGraphicsObject):
+    """
+    QGraphicsObject를 상속받아 QPropertyAnimation의 대상이 될 수 있는
+    커스텀 하이라이트 마커 클래스.
+    """
+    def __init__(self, text=""):
+        super().__init__()
+        self._text = text
+        # === 변경점: 폰트 크기 키움 ===
+        self._font = QFont("Arial", 12, QFont.Bold) 
+        self._bounding_rect = QRectF(-30, -30, 60, 60) # 원 크기 키움
+
+    def boundingRect(self):
+        return self._bounding_rect.adjusted(-15, -15, 15, 15)
+
+    def paint(self, painter, option, widget):
+        # === 변경점: 요청하신 대로 녹색 계열로 색상 변경 ===
+        painter.setPen(QPen(QColor("#27AE60"), 3)) # 선명한 녹색 테두리
+        painter.setBrush(QBrush(QColor(39, 174, 96, 100))) # 반투명 녹색 배경
+        painter.drawEllipse(self._bounding_rect)
+
+        painter.setPen(QColor("white"))
+        painter.setFont(self._font)
+        painter.drawText(self._bounding_rect, Qt.AlignCenter, self._text)
+
 class MainWindow(QMainWindow):
     hv_control_command = pyqtSignal(dict)
 
@@ -78,27 +105,20 @@ class MainWindow(QMainWindow):
         self.plot_dirty_flags = {}
         self.indicator_colors = {}
         self.hv_slot_curves = {}
-
+        self.pmt_map = self.config.get("pmt_position_map", {})
+        self.guide_marker = None # 검색 시 하이라이트되는 마커
         self.legend_to_label_map = {
-            "L_LS_Temp": "L_LS_Temp", "R_LS_Temp": "R_LS_Temp",
-            "GdLS Level": "GdLS_level", "GCLS Level": "GCLS_level",
-            "Bx": "B_x", "By": "B_y", "Bz": "B_z", "|B|": "B",
-            "Temp(°C)": "TH_O2_Temp", "Humi(%)": "TH_O2_Humi", "Oxygen(%)": "TH_O2_Oxygen",
-            "T1(°C)": "Temp1", "H1(%)": "Humi1", "T2(°C)": "Temp2", "H2(%)": "Humi2", "Dist(cm)": "Dist",
-            "Radon (μ)": "Radon_Value"
+            "L_LS_Temp": "L_LS_Temp", "R_LS_Temp": "R_LS_Temp", "GdLS Level": "GdLS_level", "GCLS Level": "GCLS_level",
+            "Bx": "B_x", "By": "B_y", "Bz": "B_z", "|B|": "B", "Temp(°C)": "TH_O2_Temp", "Humi(%)": "TH_O2_Humi", "Oxygen(%)": "TH_O2_Oxygen",
+            "T1(°C)": "Temp1", "H1(%)": "Humi1", "T2(°C)": "Temp2", "H2(%)": "Humi2", "Dist(cm)": "Dist", "Radon (μ)": "Radon_Value"
         }
         
-        # 관리자 클래스 생성
         self.ui_manager = UIManager(self)
         self.plot_manager = PlotManager(self)
         
-        # 초기화 메서드 호출
         self._init_data()
         self._init_ui()
-        
-        # === 변경점: 누락된 메서드 호출 추가 ===
         self._init_curve_data_map()
-        
         self._init_timers_and_workers()
 
     def _init_data(self):
@@ -325,32 +345,132 @@ class MainWindow(QMainWindow):
         return container
     
     def _create_guide_panel(self):
-        # QGraphicsView는 창 크기 변경에 따라 자동으로 내용의 크기를 조절하는 데 더 적합합니다.
+        container = QWidget()
+        main_layout = QVBoxLayout(container)
         
-        # 1. 그래픽 뷰와 씬 생성
-        scene = QGraphicsScene()
-        view = QGraphicsView(scene)
-        view.setRenderHint(QPainter.Antialiasing) # 이미지를 부드럽게 표시
-        view.setDragMode(QGraphicsView.ScrollHandDrag) # 마우스로 이미지 이동 가능
-        view.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
-        view.setResizeAnchor(QGraphicsView.AnchorViewCenter)
+        # --- 1. 컨트롤 패널 ---
+        control_panel = QFrame()
+        control_layout = QHBoxLayout(control_panel)
+        control_layout.setAlignment(Qt.AlignLeft)
+        
+        self.guide_slot_spin = QSpinBox(); self.guide_slot_spin.setRange(1, 16)
+        self.guide_ch_spin = QSpinBox(); self.guide_ch_spin.setRange(0, 47)
+        search_button = QPushButton("Find PMT")
+        search_button.clicked.connect(self._find_pmt_on_map)
+        
+        control_layout.addWidget(QLabel("Slot:"))
+        control_layout.addWidget(self.guide_slot_spin)
+        control_layout.addWidget(QLabel("Channel:"))
+        control_layout.addWidget(self.guide_ch_spin)
+        control_layout.addWidget(search_button)
+        
+        # --- 2. 그래픽 뷰 ---
+        self.guide_scene = QGraphicsScene()
+        self.guide_view = QGraphicsView(self.guide_scene) # 객체를 self.guide_view로 생성
+        self.guide_view.setRenderHint(QPainter.Antialiasing)
+        self.guide_view.setDragMode(QGraphicsView.ScrollHandDrag)
 
-        # 2. 이미지(Pixmap) 아이템 생성 및 씬에 추가
         guide_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "guide.png")
         if os.path.exists(guide_path):
             pixmap = QPixmap(guide_path)
-            pixmap_item = QGraphicsPixmapItem(pixmap)
-            scene.addItem(pixmap_item)
-            
-            # 뷰가 처음 표시될 때 이미지가 꽉 차게 보이도록 타이머 사용
-            QTimer.singleShot(100, lambda: view.fitInView(pixmap_item, Qt.KeepAspectRatio))
+            self.guide_pixmap_item = QGraphicsPixmapItem(pixmap)
+            self.guide_scene.addItem(self.guide_pixmap_item)
+            self._draw_default_pmt_markers()
+            QTimer.singleShot(100, self._fit_guide_view)
         else:
-            # 이미지가 없을 경우 텍스트 아이템 추가
-            text_item = scene.addText("Guide image (guide.png) not found.", QFont("Arial", 16))
-            text_item.setDefaultTextColor(QColor("gray"))
+            self.guide_scene.addText("Guide image (guide.png) not found.", QFont("Arial", 16))
 
-        # QGraphicsView는 QScrollArea가 필요 없습니다. 자체적으로 스크롤 및 줌 기능이 있습니다.
-        return view
+        main_layout.addWidget(control_panel)
+        
+        # === 변경점: 'view' -> 'self.guide_view'로 수정 ===
+        main_layout.addWidget(self.guide_view) 
+        
+        return container
+    
+    def _draw_default_pmt_markers(self):
+        for slot, channels in self.pmt_map.items():
+            for channel, coords in channels.items():
+                x, y = coords[0], coords[1]
+                
+                default_marker = QGraphicsEllipseItem(-12, -12, 24, 24)
+                default_marker.setPen(QPen(QColor("#3498DB"), 2))
+                default_marker.setBrush(QBrush(QColor(52, 152, 219, 80)))
+                default_marker.setPos(x, y)
+                
+                # === 변경점 2: 라벨 폰트 크기를 키워 시인성 개선 ===
+                text = QGraphicsTextItem(f"S{slot}C{channel}")
+                text.setFont(QFont("Arial", 11, QFont.Bold)) # 폰트 크기 9 -> 11
+                text.setDefaultTextColor(QColor("#3498DB"))
+                text_rect = text.boundingRect()
+                text.setPos(x - text_rect.width()/2, y + 12) # 원 아래 간격 조정
+                
+                self.guide_scene.addItem(default_marker)
+                self.guide_scene.addItem(text)
+
+    def _find_pmt_on_map(self):
+        if self.guide_marker and self.guide_marker in self.guide_scene.items():
+            # 이전 애니메이션이 있다면 중지하고 마커 제거
+            if hasattr(self, 'highlight_anim_group') and self.highlight_anim_group:
+                self.highlight_anim_group.stop()
+            self.guide_scene.removeItem(self.guide_marker)
+            self.guide_marker = None
+
+        slot = str(self.guide_slot_spin.value())
+        channel = str(self.guide_ch_spin.value())
+        
+        if slot in self.pmt_map and channel in self.pmt_map[slot]:
+            coords = self.pmt_map[slot][channel]
+            x, y = coords[0], coords[1]
+            
+            # 새로 만든 HighlightMarker 클래스 사용
+            marker_text = f"S{slot}\nCH{channel}"
+            self.guide_marker = HighlightMarker(marker_text)
+            self.guide_marker.setPos(x, y)
+            self.guide_marker.setZValue(10)
+
+            # 애니메이션 효과 (이제 QGraphicsObject를 대상으로 하므로 정상 작동)
+            anim1 = QPropertyAnimation(self.guide_marker, b"scale")
+            anim1.setDuration(700)
+            anim1.setStartValue(1.0)
+            anim1.setEndValue(1.4)
+            anim1.setEasingCurve(QEasingCurve.InOutQuad)
+            
+            anim2 = QPropertyAnimation(self.guide_marker, b"scale")
+            anim2.setDuration(700)
+            anim2.setStartValue(1.4)
+            anim2.setEndValue(1.0)
+            anim2.setEasingCurve(QEasingCurve.InOutQuad)
+            
+            self.highlight_anim_group = QSequentialAnimationGroup()
+            self.highlight_anim_group.addAnimation(anim1)
+            self.highlight_anim_group.addAnimation(anim2)
+            self.highlight_anim_group.setLoopCount(-1) # 무한 반복
+            self.highlight_anim_group.start()
+            
+            self.guide_scene.addItem(self.guide_marker)
+        else:
+            self.show_error(f"Position for Slot {slot}, Channel {channel} not found in pmt_map.json.")
+            
+    """def _fit_guide_view(self):
+        if hasattr(self, 'guide_pixmap_item'):
+            view_width = self.guide_view.viewport().width()
+            pixmap_width = self.guide_pixmap_item.boundingRect().width()
+            scale_factor = view_width / pixmap_width
+            self.guide_view.resetTransform()
+            self.guide_view.scale(scale_factor, scale_factor)"""
+
+    def _fit_guide_view(self):
+        """가이드 뷰의 내용에 맞게 이미지를 확대/축소하는 메서드"""
+        if hasattr(self, 'guide_pixmap_item'):
+            # 방법 A: 원본 이미지를 편집했을 경우 이 코드를 사용합니다.
+            # self.guide_view.fitInView(self.guide_pixmap_item, Qt.KeepAspectRatio)
+
+            # 방법 B: 코드에서 직접 보이는 영역을 지정합니다.
+            # 아래 숫자는 원본 이미지(1920x1080)에서 내용이 있는 부분의 좌표입니다.
+            # (x_시작, y_시작, 너비, 높이) - 필요에 따라 이 값을 조절하세요.
+            #  visible_rect = QRectF(50, 50, 1820, 980)
+            visible_rect = QRectF(50, 50, 1220, 480) 
+            self.guide_view.fitInView(visible_rect, Qt.KeepAspectRatio)
 
     def _convert_daq_voltage_to_distance(self, v, mapping_index):
         try:

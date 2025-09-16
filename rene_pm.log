@@ -1,16 +1,36 @@
-2025-09-15 23:21:46,854 - INFO - [MainThread] - ==================================================
+2025-09-16 17:47:53,736 - INFO - [MainThread] - ==================================================
 RENE-PM Integrated Monitoring System Starting
 ==================================================
-2025-09-15 23:21:47,112 - INFO - [Dummy-1] - HardwareManager scan started in a new thread.
-2025-09-15 23:21:47,112 - INFO - [Dummy-2] - Database connection established.
-2025-09-15 23:21:47,143 - INFO - [Dummy-3] - Connecting to CAEN HV at 192.168.0.39...
-2025-09-15 23:21:47,150 - INFO - [Dummy-2] - Database tables are ready.
-2025-09-15 23:21:47,151 - INFO - [Dummy-2] - Database worker started.
-2025-09-15 23:21:47,251 - INFO - [Dummy-3] - Successfully connected to CAEN HV system.
-2025-09-15 23:21:47,252 - INFO - [MainThread] - HV Connection Status Changed: Connected
-2025-09-15 23:21:49,343 - INFO - [Dummy-6] - Arduino worker started with 2000ms interval.
-2025-09-15 23:21:49,345 - INFO - [Dummy-7] - TH/O2 worker started with 2000ms interval.
-2025-09-15 23:21:49,357 - INFO - [Dummy-8] - [Magnetometer] Successfully connected to device.
-2025-09-15 23:21:49,381 - INFO - [Dummy-9] - Activated module LS_Temperature (SN: 015362E3) as cDAQ1Mod1
-2025-09-15 23:21:49,381 - INFO - [Dummy-9] - Activated module LS_Level (SN: 21A3509) as cDAQ1Mod2
-2025-09-15 23:22:46,880 - INFO - [Dummy-2] - Successfully inserted batch of 5666 items.
+2025-09-16 17:47:54,054 - INFO - [MainThread] - Database connection pool 'rene_pm_pool' created with size 5.
+2025-09-16 17:47:54,054 - INFO - [MainThread] - Worker for 'caen_hv' started.
+2025-09-16 17:47:54,054 - INFO - [Dummy-1] - Connecting to CAEN HV at 192.168.0.39...
+2025-09-16 17:47:54,055 - INFO - [Dummy-2] - HardwareManager scan started in a new thread.
+2025-09-16 17:47:54,100 - INFO - [Dummy-3] - Database tables are ready.
+2025-09-16 17:47:54,100 - INFO - [Dummy-3] - Database worker started, using shared connection pool.
+2025-09-16 17:47:54,181 - INFO - [Dummy-1] - Successfully connected to CAEN HV system.
+2025-09-16 17:47:54,193 - INFO - [MainThread] - HV Connection Status Changed: Connected
+2025-09-16 17:47:56,306 - INFO - [MainThread] - Worker for 'magnetometer' started.
+2025-09-16 17:47:56,307 - INFO - [MainThread] - Worker for 'radon' started.
+2025-09-16 17:47:56,308 - INFO - [MainThread] - Worker for 'daq' started.
+2025-09-16 17:47:56,309 - INFO - [MainThread] - Worker for 'arduino' started.
+2025-09-16 17:47:56,310 - INFO - [Dummy-6] - Arduino worker started with 2000ms interval.
+2025-09-16 17:47:56,310 - INFO - [MainThread] - Worker for 'th_o2' started.
+2025-09-16 17:47:56,312 - INFO - [Dummy-7] - TH/O2 worker started with 2000ms interval.
+2025-09-16 17:47:56,320 - INFO - [Dummy-8] - [Magnetometer] Successfully connected to device.
+2025-09-16 17:47:56,348 - INFO - [Dummy-9] - Activated module LS_Temperature (SN: 015362E3) as cDAQ1Mod1
+2025-09-16 17:47:56,348 - INFO - [Dummy-9] - Activated module LS_Level (SN: 21A3509) as cDAQ1Mod2
+2025-09-16 17:48:24,083 - INFO - [MainThread] - Application closing...
+2025-09-16 17:48:24,083 - INFO - [Dummy-3] - Processing remaining items before stopping DB worker.
+2025-09-16 17:48:24,083 - INFO - [Dummy-3] - DB worker stopped.
+2025-09-16 17:48:24,084 - INFO - [Dummy-1] - CAEN device closed.
+2025-09-16 17:48:24,095 - INFO - [Dummy-7] - TH/O2 worker stopped and client closed.
+2025-09-16 17:48:24,125 - INFO - [Dummy-6] - Arduino worker stopped and serial port closed.
+2025-09-16 17:48:28,083 - WARNING - [MainThread] - db worker thread did not finish cleanly.
+2025-09-16 17:48:32,084 - WARNING - [MainThread] - caen_hv worker thread did not finish cleanly.
+2025-09-16 17:48:36,084 - WARNING - [MainThread] - magnetometer worker thread did not finish cleanly.
+2025-09-16 17:48:40,085 - WARNING - [MainThread] - radon worker thread did not finish cleanly.
+2025-09-16 17:48:44,085 - WARNING - [MainThread] - daq worker thread did not finish cleanly.
+2025-09-16 17:48:48,086 - WARNING - [MainThread] - arduino worker thread did not finish cleanly.
+2025-09-16 17:48:52,086 - WARNING - [MainThread] - th_o2 worker thread did not finish cleanly.
+2025-09-16 17:48:52,087 - INFO - [MainThread] - Database connection pool closed.
+2025-09-16 17:48:52,087 - INFO - [MainThread] - All threads stopped. Exiting.
