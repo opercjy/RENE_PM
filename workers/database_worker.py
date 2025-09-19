@@ -15,10 +15,10 @@ class DatabaseWorker(QObject):
         'TH_O2': "INSERT IGNORE INTO TH_O2_DATA (`datetime`, `temperature`, `humidity`, `oxygen`) VALUES (?, ?, ?, ?)",
         'ARDUINO': "INSERT IGNORE INTO ARDUINO_DATA (`datetime`, `analog_1`, `analog_2`, `analog_3`, `analog_4`, `analog_5`, `digital_status`, `message`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         'HV': """
-            INSERT IGNORE INTO HV_DATA (datetime, slot, channel, power, vmon, imon, v0set, i0set, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT IGNORE INTO HV_DATA (datetime, slot, channel, power, vmon, imon, v0set, i0set, status, board_temp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        'UPS': "INSERT IGNORE INTO UPS_DATA (`datetime`, `status`, `linev`, `bcharge`, `timeleft`) VALUES (?, ?, ?, ?, ?)",
+        'UPS': "INSERT IGNORE INTO UPS_DATA (`datetime`, `status`, `linev`, `bcharge`, `timeleft`) VALUES (?, ?, ?, ?, ?)"
     }
     TABLE_SCHEMAS = [
         """CREATE TABLE IF NOT EXISTS LS_DATA (
@@ -43,7 +43,8 @@ class DatabaseWorker(QObject):
         );""", "CREATE INDEX IF NOT EXISTS idx_arduino_datetime ON ARDUINO_DATA (datetime);",
         """CREATE TABLE IF NOT EXISTS HV_DATA (
             `datetime` DATETIME, `slot` INT, `channel` INT, `power` BOOLEAN, `vmon` FLOAT, `imon` FLOAT,
-            `v0set` FLOAT, `i0set` FLOAT, `status` INT, PRIMARY KEY (`datetime`, `slot`, `channel`)
+            `v0set` FLOAT, `i0set` FLOAT, `status` INT, `board_temp` FLOAT, 
+            PRIMARY KEY (`datetime`, `slot`, `channel`)
         );""", "CREATE INDEX IF NOT EXISTS idx_hv_datetime ON HV_DATA (datetime);",
         """CREATE TABLE IF NOT EXISTS UPS_DATA (
             `datetime` DATETIME NOT NULL PRIMARY KEY, `status` VARCHAR(20), `linev` FLOAT,
@@ -66,9 +67,25 @@ class DatabaseWorker(QObject):
             conn = self.db_pool.get_connection()
             conn.database = self.db_config['database']
             cursor = conn.cursor()
+            
+            # 1. 기본 테이블 스키마 생성
             for schema in self.TABLE_SCHEMAS:
                 cursor.execute(schema)
             conn.commit()
+            
+            # 2. 'board_temp' 컬럼 존재 여부 확인 (마이그레이션 로직)
+            cursor.execute("""
+                SELECT COUNT(*) 
+                FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'HV_DATA' AND COLUMN_NAME = 'board_temp'
+            """, (self.db_config['database'],))
+            
+            if cursor.fetchone()[0] == 0:
+                logging.warning("Column 'board_temp' not found in HV_DATA. Altering table...")
+                cursor.execute("ALTER TABLE HV_DATA ADD COLUMN board_temp FLOAT")
+                conn.commit()
+                logging.info("Successfully added 'board_temp' column to HV_DATA table.")
+
             logging.info("Database tables and indexes are ready.")
             return True
         except mariadb.Error as e:

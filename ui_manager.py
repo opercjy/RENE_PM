@@ -27,7 +27,7 @@ class UIManager:
             "Magnetometer": ["B_x", "B_y", "B_z", "B"],
             "TH/O2 Sensor": ["TH_O2_Temp", "TH_O2_Humi", "TH_O2_Oxygen"],
             "Arduino": ["Temp1", "Humi1", "Temp2", "Humi2", "Dist"],
-            "Radon": ["Radon_Value", "Radon_Status"],
+            "Radon": ["Radon_Value"],
             "UPS": ["UPS_Status", "UPS_Charge", "UPS_TimeLeft", "UPS_LineV"],
             "System Status": ["HV_Shutdown_Status"]
         }

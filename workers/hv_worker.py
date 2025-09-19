@@ -56,29 +56,44 @@ class HVWorker(QObject):
             return
         
         try:
-            collected_data = {}
+            collected_data = {'slots': {}}
+
             for slot, board_info in self.crate_map.items():
                 channel_list = list(range(board_info['channels']))
-                slot_data = {ch: {} for ch in channel_list}
+                
+                try:
+                    temp_values = self.device.get_bd_param([slot], 'Temp')
+                    board_temp = float(temp_values[0]) if temp_values else -1.0
+                except Exception:
+                    board_temp = -1.0
+
+                slot_channels_data = {ch: {} for ch in channel_list}
                 for param in self.parameters_to_fetch:
                     values = self.device.get_ch_param(slot, channel_list, param)
                     for ch, value in zip(channel_list, values):
                         try:
-                            if param in ['VMon', 'IMon', 'V0Set', 'I0Set']: slot_data[ch][param] = float(value)
-                            else: slot_data[ch][param] = int(value)
-                        except (ValueError, TypeError): slot_data[ch][param] = value
-                collected_data[slot] = slot_data
+                            if param in ['VMon', 'IMon', 'V0Set', 'I0Set']:
+                                slot_channels_data[ch][param] = float(value)
+                            else:
+                                slot_channels_data[ch][param] = int(value)
+                        except (ValueError, TypeError):
+                            slot_channels_data[ch][param] = value
+                
+                collected_data['slots'][slot] = {
+                    'board_temp': board_temp,
+                    'channels': slot_channels_data
+                }
+                
             self.data_ready.emit(collected_data)
         except Exception as e:
-            logging.error(f"Error fetching CAEN data: {e}")
+            logging.error(f"Error fetching CAEN data (including temp): {e}")
             self.error_occurred.emit(f"CAEN Communication Error: {e}")
             self.polling_timer.stop()
             self.connection_status.emit(False)
 
     @pyqtSlot(int, int)
     def fetch_setpoints(self, slot, channel):
-        if not self.device:
-            return
+        if not self.device: return
         try:
             v0set = self.device.get_ch_param(slot, [channel], 'V0Set')[0]
             i0set = self.device.get_ch_param(slot, [channel], 'I0Set')[0]
@@ -91,31 +106,20 @@ class HVWorker(QObject):
         if not self.device:
             self.control_command_status.emit("Error: HV device not connected.")
             return
-
         try:
-            cmd_type = command.get('type')
-            slot = command.get('slot')
-            channels = command.get('channels')
-            
+            cmd_type, slot, channels = command.get('type'), command.get('slot'), command.get('channels')
             if cmd_type == 'set_params':
                 params_to_set = command.get('params')
                 for param, value in params_to_set.items():
                     self.device.set_ch_param(slot, channels, param, value)
-                    logging.info(f"Set {param}={value} for Slot {slot}, Ch {channels}")
                 self.control_command_status.emit(f"Successfully applied parameters to Slot {slot}, Ch {channels}.")
-
             elif cmd_type == 'set_power':
                 power_state = command.get('value')
                 self.device.set_ch_param(slot, channels, 'Pw', 1 if power_state else 0)
                 state_str = "ON" if power_state else "OFF"
-                logging.info(f"Set Power {state_str} for Slot {slot}, Ch {channels}")
                 self.control_command_status.emit(f"Successfully turned Power {state_str} for Slot {slot}, Ch {channels}.")
-        
         except Exception as e:
-            error_msg = f"HV Control Error: {e}"
-            logging.error(error_msg)
-            self.control_command_status.emit(error_msg)
-
+            self.control_command_status.emit(f"HV Control Error: {e}")
 
     @pyqtSlot()
     def stop_worker(self):
