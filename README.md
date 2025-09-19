@@ -73,6 +73,7 @@ v2.0은 대규모 아키텍처 최적화를 통해 시스템의 안정성과 성
       - `pyqtgraph`
       - `numpy`
       - `nidaqmx`
+      - `pyUSB`
       - `pyserial`
       - `pyvisa`
       - `mariadb`

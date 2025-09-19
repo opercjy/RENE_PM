@@ -59,7 +59,6 @@ class HVWorker(QObject):
             collected_data = {}
             for slot, board_info in self.crate_map.items():
                 channel_list = list(range(board_info['channels']))
-                # ... (이하 로직은 기존과 동일)
                 slot_data = {ch: {} for ch in channel_list}
                 for param in self.parameters_to_fetch:
                     values = self.device.get_ch_param(slot, channel_list, param)
@@ -87,7 +86,6 @@ class HVWorker(QObject):
         except Exception as e:
             logging.warning(f"Could not fetch setpoints for S{slot}C{channel}: {e}")
 
-    # === 변경점 2: GUI로부터 제어 명령을 받아 처리하는 슬롯 추가 ===
     @pyqtSlot(dict)
     def execute_control_command(self, command):
         if not self.device:

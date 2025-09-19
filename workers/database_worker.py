@@ -17,9 +17,9 @@ class DatabaseWorker(QObject):
         'HV': """
             INSERT IGNORE INTO HV_DATA (datetime, slot, channel, power, vmon, imon, v0set, i0set, status)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """
+        """,
+        'UPS': "INSERT IGNORE INTO UPS_DATA (`datetime`, `status`, `linev`, `bcharge`, `timeleft`) VALUES (?, ?, ?, ?, ?)",
     }
-    # === 변경점: 모든 테이블에 datetime 인덱스 생성 구문 추가 ===
     TABLE_SCHEMAS = [
         """CREATE TABLE IF NOT EXISTS LS_DATA (
             `datetime` DATETIME NOT NULL PRIMARY KEY, `RTD_1` FLOAT NULL, `RTD_2` FLOAT NULL,
@@ -44,7 +44,11 @@ class DatabaseWorker(QObject):
         """CREATE TABLE IF NOT EXISTS HV_DATA (
             `datetime` DATETIME, `slot` INT, `channel` INT, `power` BOOLEAN, `vmon` FLOAT, `imon` FLOAT,
             `v0set` FLOAT, `i0set` FLOAT, `status` INT, PRIMARY KEY (`datetime`, `slot`, `channel`)
-        );""", "CREATE INDEX IF NOT EXISTS idx_hv_datetime ON HV_DATA (datetime);"
+        );""", "CREATE INDEX IF NOT EXISTS idx_hv_datetime ON HV_DATA (datetime);",
+        """CREATE TABLE IF NOT EXISTS UPS_DATA (
+            `datetime` DATETIME NOT NULL PRIMARY KEY, `status` VARCHAR(20), `linev` FLOAT,
+            `bcharge` FLOAT, `timeleft` FLOAT
+        );""", "CREATE INDEX IF NOT EXISTS idx_ups_datetime ON UPS_DATA (datetime);",
     ]
 
     def __init__(self, db_pool, db_config, data_queue: queue.Queue):

@@ -9,7 +9,6 @@ class UIManager:
     """UI 위젯 생성 및 레이아웃을 전담하는 클래스"""
     def __init__(self, main_win):
         self.main_win = main_win
-        # MainWindow의 속성으로 plots와 labels를 초기화
         self.main_win.plots = {}
         self.main_win.labels = {}
 
@@ -17,6 +16,7 @@ class UIManager:
         indicator_group_box = QGroupBox("Real-time Indicators")
         indicator_group_box.setFont(QFont("Arial", 12, QFont.Bold))
         panel_layout = QHBoxLayout(indicator_group_box)
+        
         env_indicator_widget = QWidget()
         env_indicator_layout = QHBoxLayout(env_indicator_widget)
         env_indicator_layout.setAlignment(pg.QtCore.Qt.AlignLeft)
@@ -25,7 +25,8 @@ class UIManager:
             "Magnetometer": ["B_x", "B_y", "B_z", "B"],
             "TH/O2 Sensor": ["TH_O2_Temp", "TH_O2_Humi", "TH_O2_Oxygen"],
             "Arduino": ["Temp1", "Humi1", "Temp2", "Humi2", "Dist"],
-            "Radon": ["Radon_Value", "Radon_Status"]
+            "Radon": ["Radon_Value", "Radon_Status"],
+            "UPS": ["UPS_Status", "UPS_Charge", "UPS_TimeLeft", "UPS_LineV"]
         }
         for title, labels in env_groups.items():
             group_frame = QFrame()
@@ -50,20 +51,12 @@ class UIManager:
         self.main_win.log_viewer_text.setFont(QFont("Consolas", 9))
         log_viewer_layout.addWidget(self.main_win.log_viewer_text)
 
-        notes_group = QGroupBox("Notes")
-        notes_layout = QVBoxLayout(notes_group)
-        self.main_win.notes_edit = QTextEdit()
-        self.main_win.notes_edit.setReadOnly(True)
-        notes_layout.addWidget(self.main_win.notes_edit)
-        try:
-            with open("notes.md", "r", encoding="utf-8") as f:
-                self.main_win.notes_edit.setMarkdown(f.read())
-        except FileNotFoundError:
-            self.main_win.notes_edit.setText("Project root folder에 notes.md 파일을 생성하세요.")
+        # === 변경점: Notes 그룹 생성 로직을 완전히 제거 ===
 
-        panel_layout.addWidget(env_indicator_widget, 5)
-        panel_layout.addWidget(log_viewer_group, 2)
-        panel_layout.addWidget(notes_group, 3)
+        # === 변경점: 남은 위젯의 공간 비율을 재조정 (7:3) ===
+        panel_layout.addWidget(env_indicator_widget, 7)
+        panel_layout.addWidget(log_viewer_group, 3)
+        
         return indicator_group_box
 
 class PlotManager:
