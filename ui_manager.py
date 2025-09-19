@@ -1,4 +1,4 @@
-# ui_manager.py
+# ui_manager.py 파일을 아래 코드로 전체 교체하세요.
 
 from PyQt5.QtWidgets import (QGroupBox, QGridLayout, QLabel, QFrame, QVBoxLayout, QHBoxLayout,
                              QTextEdit, QWidget)
@@ -20,14 +20,18 @@ class UIManager:
         env_indicator_widget = QWidget()
         env_indicator_layout = QHBoxLayout(env_indicator_widget)
         env_indicator_layout.setAlignment(pg.QtCore.Qt.AlignLeft)
+        
+        # === 변경점: 모든 그룹을 하나의 딕셔너리로 통합 (이전 방식으로 롤백) ===
         env_groups = {
             "LS (NI-cDAQ)": ["L_LS_Temp", "R_LS_Temp", "GdLS_level", "GCLS_level"],
             "Magnetometer": ["B_x", "B_y", "B_z", "B"],
             "TH/O2 Sensor": ["TH_O2_Temp", "TH_O2_Humi", "TH_O2_Oxygen"],
             "Arduino": ["Temp1", "Humi1", "Temp2", "Humi2", "Dist"],
             "Radon": ["Radon_Value", "Radon_Status"],
-            "UPS": ["UPS_Status", "UPS_Charge", "UPS_TimeLeft", "UPS_LineV"]
+            "UPS": ["UPS_Status", "UPS_Charge", "UPS_TimeLeft", "UPS_LineV"],
+            "System Status": ["HV_Shutdown_Status"]
         }
+        
         for title, labels in env_groups.items():
             group_frame = QFrame()
             group_frame.setFrameShape(QFrame.StyledPanel)
@@ -51,9 +55,6 @@ class UIManager:
         self.main_win.log_viewer_text.setFont(QFont("Consolas", 9))
         log_viewer_layout.addWidget(self.main_win.log_viewer_text)
 
-        # === 변경점: Notes 그룹 생성 로직을 완전히 제거 ===
-
-        # === 변경점: 남은 위젯의 공간 비율을 재조정 (7:3) ===
         panel_layout.addWidget(env_indicator_widget, 7)
         panel_layout.addWidget(log_viewer_group, 3)
         

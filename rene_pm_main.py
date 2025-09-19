@@ -101,10 +101,13 @@ class MainWindow(QMainWindow):
         self.plot_dirty_flags = {}
         self.indicator_colors = {}
         self.hv_slot_curves = {}
+        # === 변경점: 누락된 변수 초기화 추가 ===
+        self.hv_slot_groupboxes = {}
         self.pmt_map = self.config.get("pmt_position_map", {})
         self.guide_marker = None
         self.last_analysis_df = None
         self.hv_db_push_counter = 0
+        self.emergency_shutdown_triggered = False
 
         self.legend_to_label_map = {
             "L_LS_Temp": "L_LS_Temp", "R_LS_Temp": "R_LS_Temp", "GdLS Level": "GdLS_level", "GCLS Level": "GCLS_level",
@@ -246,21 +249,37 @@ class MainWindow(QMainWindow):
     def _create_ups_panel(self):
         container = QGroupBox("UPS Time-Series"); container.setFont(QFont("Arial", 12, QFont.Bold))
         layout = QGridLayout(container)
+
         plot_widget = pg.PlotWidget()
-        plot_widget.setBackground('w'); plot_widget.showGrid(x=True, y=True, alpha=0.3)
+        plot_widget.setBackground('w')
+        plot_widget.showGrid(x=True, y=True, alpha=0.3)
         plot_widget.setAxisItems({'bottom': pg.DateAxisItem(orientation='bottom')})
-        plot_widget.setLabel('left', 'Value'); plot_widget.setLabel('right', 'Time Left (min)')
-        legend = plot_widget.addLegend(offset=(10, 10)); legend.setBrush(pg.mkBrush(255, 255, 255, 150))
+        plot_widget.setLabel('left', 'Value')
+        plot_widget.setLabel('right', 'Time Left (min)')
+        
+        legend = plot_widget.addLegend(offset=(10, 10))
+        legend.setBrush(pg.mkBrush(255, 255, 255, 150))
+
         self.curves["ups_linev"] = plot_widget.plot(pen=pg.mkPen('#1f77b4', width=2), name="Line Voltage (V)")
         self.curves["ups_bcharge"] = plot_widget.plot(pen=pg.mkPen('#2ca02c', width=2), name="Battery Charge (%)")
-        p2 = pg.ViewBox(); plot_widget.scene().addItem(p2); plot_widget.getAxis('right').linkToView(p2)
+        
+        p2 = pg.ViewBox()
+        plot_widget.scene().addItem(p2)
+        plot_widget.getAxis('right').linkToView(p2)
         p2.setXLink(plot_widget)
-        self.curves["ups_timeleft"] = pg.PlotCurveItem(pen=pg.mkPen('#ff7f0e', width=2, style=Qt.DashLine), name="Time Left (min)")
+        
+        self.curves["ups_timeleft"] = pg.PlotCurveItem(pen=pg.mkPen('#ff7f0e', width=2, style=Qt.DashLine))
+        
+        legend.addItem(self.curves["ups_timeleft"], name="Time Left (min)")
+        
         p2.addItem(self.curves["ups_timeleft"])
+
         def update_views():
             p2.setGeometry(plot_widget.getViewBox().sceneBoundingRect())
             p2.linkedViewChanged(plot_widget.getViewBox(), p2.XAxis)
+
         plot_widget.getViewBox().sigResized.connect(update_views)
+
         layout.addWidget(plot_widget)
         return container
 
@@ -297,6 +316,18 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(control_group, 1); main_layout.addWidget(log_group, 2)
         self.single_channel_checkbox.setChecked(True)
         return container
+    
+    def _trigger_emergency_hv_shutdown(self):
+        """Triggers an emergency shutdown of all HV channels."""
+        logging.warning("UPS BATTERY LOW. Triggering emergency HV shutdown.")
+        self.hv_control_log.append(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] WARNING: UPS BATTERY LOW. SHUTTING DOWN ALL HV CHANNELS.")
+        
+        # 설정 파일에 정의된 모든 슬롯과 채널에 대해 종료 명령 전송
+        for slot_str, board_info in self.config['caen_hv']['crate_map'].items():
+            slot = int(slot_str)
+            channels = list(range(board_info['channels']))
+            command = {'type': 'set_power', 'slot': slot, 'channels': channels, 'value': False}
+            self.hv_control_command.emit(command)
 
     def _toggle_single_channel_mode(self, state):
         is_single_mode = (state == Qt.Checked)
@@ -308,47 +339,121 @@ class MainWindow(QMainWindow):
         container = QWidget(); main_layout = QVBoxLayout(container)
         control_panel = QFrame(); control_panel.setFrameShape(QFrame.StyledPanel)
         control_layout = QHBoxLayout(control_panel); control_layout.setAlignment(Qt.AlignLeft)
+        
+        self.analysis_mode_combo = QComboBox()
+        self.analysis_mode_combo.addItems(["Time Series", "Correlation"])
+        
+        # --- 시계열 분석용 UI 위젯 ---
+        self.timeseries_widget = QWidget()
+        ts_layout = QHBoxLayout(self.timeseries_widget); ts_layout.setContentsMargins(0,0,0,0)
         self.analysis_combo = QComboBox()
         self.analysis_map = {
-            "LS Temperature (°C)": "SELECT `datetime`, `RTD_1`, `RTD_2` FROM LS_DATA", "LS Level (mm)": "SELECT `datetime`, `DIST_1`, `DIST_2` FROM LS_DATA",
-            "Magnetometer (mG)": "SELECT `datetime`, `Bx`, `By`, `Bz`, `B_mag` FROM MAGNETOMETER_DATA", "Radon (Bq/m³)": "SELECT `datetime`, `mu` FROM RADON_DATA",
-            "TH/O2 Sensor": "SELECT `datetime`, `temperature`, `humidity`, `oxygen` FROM TH_O2_DATA", "Arduino Sensor": "SELECT `datetime`, `analog_1`, `analog_2`, `analog_3`, `analog_4`, `analog_5` FROM ARDUINO_DATA",
-            "High Voltage (HV)": "HV_QUERY"
+            "LS Temperature (°C)": "SELECT `datetime`, `RTD_1`, `RTD_2` FROM LS_DATA",
+            "LS Level (mm)": "SELECT `datetime`, `DIST_1`, `DIST_2` FROM LS_DATA",
+            "Magnetometer (mG)": "SELECT `datetime`, `Bx`, `By`, `Bz`, `B_mag` FROM MAGNETOMETER_DATA",
+            "Radon (Bq/m³)": "SELECT `datetime`, `mu` FROM RADON_DATA",
+            "TH/O2 Sensor": "SELECT `datetime`, `temperature`, `humidity`, `oxygen` FROM TH_O2_DATA",
+            "Arduino Sensor": "SELECT `datetime`, `analog_1`, `analog_2`, `analog_3`, `analog_4`, `analog_5` FROM ARDUINO_DATA",
+            "UPS Status": "SELECT `datetime`, `linev`, `bcharge`, `timeleft` FROM UPS_DATA",
+            "High Voltage (VMon)": "HV_QUERY",
+            "PMT Dark Current (IMon)": "HV_QUERY"
         }
-        self.analysis_combo.addItems(self.analysis_map.keys()); self.analysis_combo.currentTextChanged.connect(self._on_analysis_type_changed)
-        self.env_control_widget = QWidget()
-        env_layout = QHBoxLayout(self.env_control_widget); env_layout.setContentsMargins(0,0,0,0)
-        self.start_date_edit = QDateEdit(QDate.currentDate().addDays(-7)); self.end_date_edit = QDateEdit(QDate.currentDate())
-        self.start_date_edit.setCalendarPopup(True); self.end_date_edit.setCalendarPopup(True)
-        env_layout.addWidget(QLabel("Start:")); env_layout.addWidget(self.start_date_edit)
-        env_layout.addWidget(QLabel("End:")); env_layout.addWidget(self.end_date_edit)
-        self.hv_control_widget = QWidget()
-        hv_layout = QHBoxLayout(self.hv_control_widget); hv_layout.setContentsMargins(0,0,0,0)
+        self.analysis_combo.addItems(self.analysis_map.keys())
+        
+        self.hv_specific_controls = QWidget()
+        hv_spec_layout = QHBoxLayout(self.hv_specific_controls); hv_spec_layout.setContentsMargins(0,0,0,0)
         self.hv_slot_combo = QComboBox()
         if self.config.get('caen_hv', {}).get("enabled"): self.hv_slot_combo.addItems(self.config['caen_hv']['crate_map'].keys())
-        self.hv_ch_start = QSpinBox(); self.hv_ch_start.setRange(0, 99)
-        self.hv_ch_end = QSpinBox(); self.hv_ch_end.setRange(0, 99)
+        self.hv_ch_start = QSpinBox(); self.hv_ch_start.setRange(0, 99); self.hv_ch_end = QSpinBox(); self.hv_ch_end.setRange(0, 99)
         self.analysis_single_channel_checkbox = QCheckBox("Single")
-        hv_layout.addWidget(QLabel("Slot:")); hv_layout.addWidget(self.hv_slot_combo)
-        hv_layout.addWidget(QLabel("Ch Start:")); hv_layout.addWidget(self.hv_ch_start)
-        hv_layout.addWidget(QLabel("Ch End:")); hv_layout.addWidget(self.hv_ch_end)
-        hv_layout.addWidget(self.analysis_single_channel_checkbox)
-        self.hv_start_date_edit = QDateEdit(QDate.currentDate().addDays(-7)); self.hv_end_date_edit = QDateEdit(QDate.currentDate())
-        self.hv_start_date_edit.setCalendarPopup(True); self.hv_end_date_edit.setCalendarPopup(True)
-        hv_layout.addWidget(QLabel("Start:")); hv_layout.addWidget(self.hv_start_date_edit)
-        hv_layout.addWidget(QLabel("End:")); hv_layout.addWidget(self.hv_end_date_edit)
+        hv_spec_layout.addWidget(QLabel("Slot:")); hv_spec_layout.addWidget(self.hv_slot_combo)
+        hv_spec_layout.addWidget(QLabel("Ch Start:")); hv_spec_layout.addWidget(self.hv_ch_start); hv_spec_layout.addWidget(QLabel("Ch End:")); hv_spec_layout.addWidget(self.hv_ch_end)
+        hv_spec_layout.addWidget(self.analysis_single_channel_checkbox)
+        self.analysis_single_channel_checkbox.setChecked(True)
+        self.hv_specific_controls.hide()
+
+        self.analysis_start_date = QDateEdit(QDate.currentDate().addDays(-7))
+        self.analysis_end_date = QDateEdit(QDate.currentDate())
+        self.analysis_start_date.setCalendarPopup(True); self.analysis_end_date.setCalendarPopup(True)
+
+        ts_layout.addWidget(QLabel("Data:")); ts_layout.addWidget(self.analysis_combo)
+        ts_layout.addWidget(self.hv_specific_controls)
+        ts_layout.addWidget(QLabel("Start:")); ts_layout.addWidget(self.analysis_start_date)
+        ts_layout.addWidget(QLabel("End:")); ts_layout.addWidget(self.analysis_end_date)
+        
+        # --- 상관관계 분석용 UI 위젯 ---
+        self.correlation_widget = QWidget()
+        corr_layout = QHBoxLayout(self.correlation_widget); corr_layout.setContentsMargins(0,0,0,0)
+        self.corr_slot_combo = QComboBox()
+        if self.config.get('caen_hv', {}).get("enabled"): self.corr_slot_combo.addItems(self.config['caen_hv']['crate_map'].keys())
+        self.corr_param_combo = QComboBox(); self.corr_param_combo.addItems(["VMon", "IMon"])
+        self.corr_target_label = QLabel("Target: Slot 1 VMon vs LS Temp")
+        
+        # === 변경점 1: 상관관계 분석용 채널 선택 위젯 추가 ===
+        self.corr_ch_start = QSpinBox(); self.corr_ch_start.setRange(0, 99)
+        self.corr_ch_end = QSpinBox(); self.corr_ch_end.setRange(0, 99)
+        self.corr_single_channel_checkbox = QCheckBox("Single")
+        
+        self.corr_start_date_edit = QDateEdit(QDate.currentDate().addDays(-7)); self.corr_end_date_edit = QDateEdit(QDate.currentDate())
+        self.corr_start_date_edit.setCalendarPopup(True); self.corr_end_date_edit.setCalendarPopup(True)
+
+        corr_layout.addWidget(QLabel("Slot:")); corr_layout.addWidget(self.corr_slot_combo)
+        corr_layout.addWidget(QLabel("Ch Start:")); corr_layout.addWidget(self.corr_ch_start)
+        corr_layout.addWidget(QLabel("Ch End:")); corr_layout.addWidget(self.corr_ch_end)
+        corr_layout.addWidget(self.corr_single_channel_checkbox)
+        corr_layout.addWidget(QLabel("Param:")); corr_layout.addWidget(self.corr_param_combo)
+        corr_layout.addWidget(self.corr_target_label)
+        corr_layout.addWidget(QLabel("Start:")); corr_layout.addWidget(self.corr_start_date_edit)
+        corr_layout.addWidget(QLabel("End:")); corr_layout.addWidget(self.corr_end_date_edit)
+        self.correlation_widget.hide()
+        
+        # --- 메인 컨트롤 레이아웃 최종 구성 및 시그널 연결 ---
+        self.plot_button = QPushButton("Plot Data"); self.export_button = QPushButton("Export to CSV")
+        control_layout.addWidget(QLabel("Mode:")); control_layout.addWidget(self.analysis_mode_combo)
+        control_layout.addWidget(self.timeseries_widget); control_layout.addWidget(self.correlation_widget)
+        control_layout.addStretch(1); control_layout.addWidget(self.plot_button); control_layout.addWidget(self.export_button)
+        
+        self.analysis_mode_combo.currentTextChanged.connect(self._on_analysis_mode_changed)
+        self.analysis_combo.currentTextChanged.connect(self._on_analysis_type_changed)
         self.analysis_single_channel_checkbox.stateChanged.connect(self._toggle_single_channel_mode_analysis)
         self.hv_ch_start.valueChanged.connect(lambda val: self.hv_ch_end.setValue(val) if self.analysis_single_channel_checkbox.isChecked() else None)
-        self.analysis_single_channel_checkbox.setChecked(True)
-        self.hv_control_widget.hide()
-        self.plot_button = QPushButton("Plot Data"); self.plot_button.clicked.connect(self._run_analysis)
-        self.export_button = QPushButton("Export to CSV"); self.export_button.clicked.connect(self._export_analysis_data)
-        control_layout.addWidget(QLabel("Data Type:")); control_layout.addWidget(self.analysis_combo)
-        control_layout.addWidget(self.env_control_widget); control_layout.addWidget(self.hv_control_widget)
-        control_layout.addWidget(self.plot_button); control_layout.addWidget(self.export_button)
+        
+        # === 변경점 2: 새로운 위젯들의 시그널 연결 추가 ===
+        self.corr_slot_combo.currentTextChanged.connect(self._update_correlation_display)
+        self.corr_single_channel_checkbox.stateChanged.connect(self._toggle_single_channel_mode_correlation)
+        self.corr_ch_start.valueChanged.connect(lambda val: self.corr_ch_end.setValue(val) if self.corr_single_channel_checkbox.isChecked() else None)
+        self.corr_single_channel_checkbox.setChecked(True)
+
+        self.plot_button.clicked.connect(self._run_analysis); self.export_button.clicked.connect(self._export_analysis_data)
+        
         self.analysis_canvas = FigureCanvas(Figure(figsize=(15, 6)))
         main_layout.addWidget(control_panel); main_layout.addWidget(self.analysis_canvas)
         return container
+    
+    def _toggle_single_channel_mode_correlation(self, state):
+        is_single_mode = (state == Qt.Checked)
+        self.corr_ch_end.setEnabled(not is_single_mode)
+        if is_single_mode:
+            self.corr_ch_end.setValue(self.corr_ch_start.value())
+    
+    def _on_analysis_mode_changed(self, mode):
+        """분석 모드 변경 시 UI를 전환하는 함수"""
+        if mode == "Time Series":
+            self.timeseries_widget.show()
+            self.correlation_widget.hide()
+        elif mode == "Correlation":
+            self.timeseries_widget.hide()
+            self.correlation_widget.show()
+    
+    def _update_correlation_display(self, slot_str):
+        """상관관계 분석의 슬롯 변경 시 타겟 라벨을 업데이트하는 함수"""
+        slot = int(slot_str)
+        if slot == 1:
+            target_temp = "LS Temp"
+        else: # Slot 4, 8
+            target_temp = "TH/O2 Temp"
+        param = self.corr_param_combo.currentText()
+        self.corr_target_label.setText(f"Target: Slot {slot} {param} vs {target_temp}")
         
     def _toggle_single_channel_mode_analysis(self, state):
         is_single_mode = (state == Qt.Checked)
@@ -357,15 +462,23 @@ class MainWindow(QMainWindow):
             self.hv_ch_end.setValue(self.hv_ch_start.value())
 
     def _create_hv_grid_panel(self):
-        hv_container_group = QGroupBox("CAEN High Voltage Status"); hv_container_group.setFont(QFont("Arial", 12, QFont.Bold))
-        hv_main_layout = QVBoxLayout(hv_container_group)
+        self.hv_crate_groupbox = QGroupBox("CAEN High Voltage Status")
+        self.hv_crate_groupbox.setFont(QFont("Arial", 12, QFont.Bold))
+        hv_main_layout = QVBoxLayout(self.hv_crate_groupbox)
+
         self.hv_channel_widgets = {}
         caen_config = self.config.get('caen_hv', {})
         if caen_config.get("enabled"):
             crate_map = caen_config.get('crate_map', {}); display_channels = caen_config.get('display_channels', {})
             for slot_str, board_info in crate_map.items():
-                slot = int(slot_str); slot_group = QGroupBox(f"Slot {slot}: {board_info.get('description', '')}"); slot_group.setFont(QFont("Arial", 10))
-                slot_layout = QGridLayout(slot_group); slot_layout.setAlignment(Qt.AlignLeft); hv_main_layout.addWidget(slot_group)
+                slot = int(slot_str)
+                slot_group = QGroupBox(f"Slot {slot}: {board_info.get('description', '')}")
+                slot_group.setFont(QFont("Arial", 10))
+                self.hv_slot_groupboxes[slot] = slot_group
+                
+                slot_layout = QGridLayout(slot_group)
+                slot_layout.setAlignment(Qt.AlignLeft)
+                hv_main_layout.addWidget(slot_group)
                 channels_to_display = []
                 display_config = display_channels.get(slot_str)
                 if display_config == "all": channels_to_display = range(board_info['channels'])
@@ -374,7 +487,8 @@ class MainWindow(QMainWindow):
                 for i, ch in enumerate(channels_to_display):
                     widget = ChannelWidget(slot, ch); widget.setVisible(False)
                     self.hv_channel_widgets[(slot, ch)] = widget; slot_layout.addWidget(widget, i // num_cols, i % num_cols)
-        return hv_container_group
+        
+        return self.hv_crate_groupbox
 
     def _create_hv_slot_graph_panel(self, slot, num_channels):
         container = QWidget(); layout = QHBoxLayout(container)
@@ -547,60 +661,135 @@ class MainWindow(QMainWindow):
             self.hv_control_command.emit(command)
 
     def _on_analysis_type_changed(self, text):
-        if text == "High Voltage (HV)":
-            self.env_control_widget.hide(); self.hv_control_widget.show()
+        """시계열 분석의 데이터 종류 변경 시 HV 관련 UI만 토글"""
+        if "(VMon)" in text or "(IMon)" in text:
+            self.hv_specific_controls.show()
         else:
-            self.hv_control_widget.hide(); self.env_control_widget.show()
+            self.hv_specific_controls.hide()
 
     def _run_analysis(self):
-        if not self.db_pool:
-            self.show_error("Database connection pool is not available."); return
+        if not self.db_pool: self.show_error("DB pool not available."); return
         self.plot_button.setEnabled(False); self.plot_button.setText("Loading...")
-        analysis_type = self.analysis_combo.currentText()
-        query = self.analysis_map[analysis_type]
-        if query == "HV_QUERY":
-            slot = self.hv_slot_combo.currentText(); ch_start = self.hv_ch_start.value(); ch_end = self.hv_ch_end.value()
-            start_date = self.hv_start_date_edit.date().toString("yyyy-MM-dd 00:00:00")
-            end_date = self.hv_end_date_edit.date().toString("yyyy-MM-dd 23:59:59")
-            query = f"SELECT `datetime`, `channel`, `vmon`, `imon` FROM HV_DATA WHERE `slot` = ? AND `channel` BETWEEN ? AND ? AND `datetime` BETWEEN ? AND ?"
-            params = [int(slot), ch_start, ch_end, start_date, end_date]
-        else:
-            start_date = self.start_date_edit.date().toString("yyyy-MM-dd 00:00:00")
-            end_date = self.end_date_edit.date().toString("yyyy-MM-dd 23:59:59")
-            query = f"{query} WHERE `datetime` BETWEEN ? AND ?"
-            params = [start_date, end_date]
-        self.analysis_thread = AnalysisWorker(self.db_pool, self.config['database'], query, params)
+        
+        mode = self.analysis_mode_combo.currentText()
+        queries, params = [], []
+
+        if mode == "Time Series":
+            analysis_type = self.analysis_combo.currentText()
+            query = self.analysis_map[analysis_type]
+            start_date = self.analysis_start_date.date().toString("yyyy-MM-dd 00:00:00")
+            end_date = self.analysis_end_date.date().toString("yyyy-MM-dd 23:59:59")
+            
+            if query == "HV_QUERY":
+                slot = self.hv_slot_combo.currentText()
+                ch_start = self.hv_ch_start.value()
+                ch_end = self.hv_ch_end.value()
+                final_query = "SELECT `datetime`, `channel`, `vmon`, `imon` FROM HV_DATA WHERE `slot` = ? AND `channel` BETWEEN ? AND ? AND `datetime` BETWEEN ? AND ?"
+                queries.append(final_query)
+                params.append([int(slot), ch_start, ch_end, start_date, end_date])
+            else:
+                final_query = f"{query} WHERE `datetime` BETWEEN ? AND ?"
+                queries.append(final_query)
+                params.append([start_date, end_date])
+
+        elif mode == "Correlation":
+            slot = int(self.corr_slot_combo.currentText())
+            # === 변경점 3: 상관관계 분석용 채널 범위 값 가져오기 ===
+            ch_start = self.corr_ch_start.value()
+            ch_end = self.corr_ch_end.value()
+            start_date = self.corr_start_date_edit.date().toString("yyyy-MM-dd 00:00:00")
+            end_date = self.corr_end_date_edit.date().toString("yyyy-MM-dd 23:59:59")
+            
+            # === 변경점 4: HV 데이터 쿼리에 채널 범위 조건 추가 ===
+            queries.append("SELECT `datetime`, `channel`, `vmon`, `imon` FROM HV_DATA WHERE `slot` = ? AND `channel` BETWEEN ? AND ? AND `datetime` BETWEEN ? AND ?")
+            params.append([slot, ch_start, ch_end, start_date, end_date])
+            
+            if slot == 1:
+                queries.append("SELECT `datetime`, (`RTD_1` + `RTD_2`) / 2 as temp FROM LS_DATA WHERE `datetime` BETWEEN ? AND ? AND `RTD_1` IS NOT NULL AND `RTD_2` IS NOT NULL")
+            else:
+                queries.append("SELECT `datetime`, `temperature` as temp FROM TH_O2_DATA WHERE `datetime` BETWEEN ? AND ? AND `temperature` IS NOT NULL")
+            params.append([start_date, end_date])
+
+        self.analysis_thread = AnalysisWorker(self.db_pool, self.config['database'], queries, params)
         self.analysis_thread.analysis_complete.connect(self._plot_analysis_data)
         self.analysis_thread.error_occurred.connect(self.show_error)
         self.analysis_thread.finished.connect(self._on_analysis_finished)
         self.analysis_thread.start()
 
-    def _plot_analysis_data(self, df):
-        if df.empty:
-            self.show_error("No data found for the selected period."); return
-        self.last_analysis_df = df
+    def _plot_analysis_data(self, dfs: list):
+        if not dfs or any(df.empty for df in dfs):
+            self.show_error("No data found for the selected period or parameters.")
+            return
+        
+        # CSV Export를 위해 첫 번째 (또는 병합된) 데이터프레임을 저장
+        self.last_analysis_df = dfs[0]
         self.analysis_canvas.figure.clear()
-        df['datetime'] = pd.to_datetime(df['datetime'])
-        analysis_type = self.analysis_combo.currentText()
+        
+        mode = self.analysis_mode_combo.currentText()
         fig = self.analysis_canvas.figure
-        fig.suptitle(f"Analysis of {analysis_type}", fontsize=16)
-        if analysis_type == "High Voltage (HV)":
-            v_ax, i_ax = fig.subplots(2, 1, sharex=True)
-            v_ax.set_ylabel("Voltage (VMon)"); i_ax.set_ylabel("Current (IMon)")
-            df_v_pivot = df.pivot(index='datetime', columns='channel', values='vmon')
-            df_i_pivot = df.pivot(index='datetime', columns='channel', values='imon')
-            for channel in df_v_pivot.columns:
-                v_ax.plot(df_v_pivot.index, df_v_pivot[channel], marker='.', linestyle='-', markersize=2, label=f'Ch {channel}')
-            for channel in df_i_pivot.columns:
-                i_ax.plot(df_i_pivot.index, df_i_pivot[channel], marker='.', linestyle='-', markersize=2, label=f'Ch {channel}')
-            v_ax.legend(); i_ax.legend()
-            v_ax.grid(True, linestyle=':', alpha=0.7); i_ax.grid(True, linestyle=':', alpha=0.7)
-        else:
-            ax = fig.add_subplot(111); df.set_index('datetime', inplace=True)
-            ax.set_ylabel(analysis_type.split(' ')[-1])
-            for column in df.columns:
-                ax.plot(df.index, df[column], marker='o', linestyle='-', markersize=2, label=column)
-            ax.legend(); ax.grid(True)
+        
+        if mode == "Time Series":
+            analysis_type = self.analysis_combo.currentText()
+            fig.suptitle(f"Time Series Analysis of {analysis_type}", fontsize=16)
+            df = dfs[0]
+            df['datetime'] = pd.to_datetime(df['datetime'])
+
+            if "High Voltage (VMon)" in analysis_type:
+                ax = fig.add_subplot(111)
+                ax.set_ylabel("Voltage (VMon)")
+                df_pivot = df.pivot(index='datetime', columns='channel', values='vmon')
+                df_pivot.plot(ax=ax, marker='.', linestyle='-', markersize=2)
+                ax.legend(title='Channel'); ax.grid(True, linestyle=':', alpha=0.7)
+            
+            elif "PMT Dark Current (IMon)" in analysis_type:
+                ax = fig.add_subplot(111)
+                ax.set_ylabel("Current (IMon, uA)")
+                df_pivot = df.pivot(index='datetime', columns='channel', values='imon')
+                df_pivot.plot(ax=ax, marker='.', linestyle='-', markersize=2)
+                ax.legend(title='Channel'); ax.grid(True, linestyle=':', alpha=0.7)
+
+            else:
+                ax = fig.add_subplot(111)
+                df.set_index('datetime', inplace=True)
+                y_label = analysis_type[analysis_type.find("(")+1:analysis_type.find(")")] if "(" in analysis_type else ""
+                ax.set_ylabel(y_label)
+                for column in df.columns:
+                    if column != 'status':
+                        ax.plot(df.index, df[column], marker='o', linestyle='-', markersize=2, label=column)
+                ax.legend(); ax.grid(True)
+
+        elif mode == "Correlation":
+            df_hv = dfs[0]; df_temp = dfs[1]
+            if df_hv.empty or df_temp.empty: self.show_error("Not enough data for correlation."); return
+            
+            df_hv['datetime'] = pd.to_datetime(df_hv['datetime'])
+            df_temp['datetime'] = pd.to_datetime(df_temp['datetime'])
+            
+            merged_df = pd.merge_asof(df_hv.sort_values('datetime'), df_temp.sort_values('datetime'), on='datetime', direction='nearest', tolerance=pd.Timedelta('10min'))
+            merged_df.dropna(inplace=True)
+            self.last_analysis_df = merged_df
+
+            param = self.corr_param_combo.currentText().lower()
+            slot = self.corr_slot_combo.currentText()
+            temp_name = "LS Temp" if int(slot) == 1 else "TH/O2 Temp"
+            
+            fig.suptitle(f"Correlation of Slot {slot} {param.upper()} vs {temp_name}", fontsize=16)
+            ax = fig.add_subplot(111)
+            # 채널별로 다른 색상으로 산점도 그리기
+            for channel in merged_df['channel'].unique():
+                channel_df = merged_df[merged_df['channel'] == channel]
+                ax.scatter(channel_df['temp'], channel_df[param], alpha=0.5, label=f'Ch {channel}')
+
+            ax.set_xlabel(f"{temp_name} (°C)"); ax.set_ylabel(f"{param.upper()} ({'V' if 'v' in param else 'uA'})")
+            ax.grid(True); ax.legend(title='Channel')
+            
+            # 전체 데이터에 대한 선형 회귀 분석
+            if len(merged_df) > 1:
+                m, b = np.polyfit(merged_df['temp'], merged_df[param], 1)
+                ax.plot(merged_df['temp'], m * merged_df['temp'] + b, color='red', linewidth=2, linestyle='--', label='Overall Trend')
+                corr = merged_df['temp'].corr(merged_df[param])
+                ax.text(0.05, 0.95, f'Overall Trend:\ny = {m:.3f}x + {b:.2f}\nr = {corr:.3f}', transform=ax.transAxes, fontsize=10, verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+
         fig.autofmt_xdate(); fig.tight_layout(rect=[0, 0.03, 1, 0.95]); self.analysis_canvas.draw()
 
     def _export_analysis_data(self):
@@ -673,10 +862,25 @@ class MainWindow(QMainWindow):
     @pyqtSlot(str)
     def activate_sensor(self, name):
         logging.debug(f"[MainWindow] activate_sensor() called for '{name}'.")
-        ui_map = {'daq': (['daq_temp', 'daq_level'], ["L_LS_Temp","R_LS_Temp","GdLS_level","GCLS_level"]),'radon': (['radon'], ["Radon_Value", "Radon_Status"]),'magnetometer': (['mag'], ["B_x", "B_y", "B_z", "B"]),'th_o2': (['th_o2'], ["TH_O2_Temp","TH_O2_Humi","TH_O2_Oxygen"]),'arduino': (['arduino'], ["Temp1","Humi1","Temp2","Humi2","Dist"]), 'ups': ([], ["UPS_Status", "UPS_Charge", "UPS_TimeLeft", "UPS_LineV"]), 'caen_hv': ([], [])}
+        ui_map = {
+            'daq': (['daq_temp', 'daq_level'], ["L_LS_Temp","R_LS_Temp","GdLS_level","GCLS_level"]),
+            'radon': (['radon'], ["Radon_Value", "Radon_Status"]),
+            'magnetometer': (['mag'], ["B_x", "B_y", "B_z", "B"]),
+            'th_o2': (['th_o2'], ["TH_O2_Temp","TH_O2_Humi","TH_O2_Oxygen"]),
+            'arduino': (['arduino'], ["Temp1","Humi1","Temp2","Humi2","Dist"]), 
+            # === 변경점: UPS 활성화 라벨 목록에 'HV_Shutdown_Status' 추가 ===
+            'ups': ([], ["UPS_Status", "UPS_Charge", "UPS_TimeLeft", "UPS_LineV", "HV_Shutdown_Status"]), 
+            'caen_hv': ([], [])
+        }
         if name in ui_map:
+            # 그래프 그룹 위젯을 활성화 (현재는 사용하지 않음)
+            # for key in ui_map[name][0]:
+            #     if key in self.plots: self.plots[key].setVisible(True)
+            
+            # 인디케이터 라벨 위젯을 활성화
             for key in ui_map[name][1]:
                 if key in self.labels: self.labels[key].setVisible(True)
+        
         self._start_worker(name)
     
     def _start_db_worker(self):
@@ -770,16 +974,43 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(dict)
     def update_ups_ui(self, data):
+        # --- 1. 실시간 인디케이터 및 그래프 업데이트 ---
         status = data.get('STATUS', 'N/A')
-        color = "green" if status == "ONLINE" else "orange" if status == "ONBATT" else "red"
-        self.labels['UPS_Status'].setText(f"Status: <b style='color:{color};'>{status}</b>")
-        self.labels['UPS_Charge'].setText(f"Charge: {data.get('BCHARGE', 0.0):.1f} %")
-        self.labels['UPS_TimeLeft'].setText(f"Time Left: {data.get('TIMELEFT', 0.0):.1f} min")
-        self.labels['UPS_LineV'].setText(f"Line V: {data.get('LINEV', 0.0):.1f} V")
+        charge = data.get('BCHARGE', 0.0)
+        timeleft = data.get('TIMELEFT', 0.0)
+        linev = data.get('LINEV', 0.0)
+        
+        status_color = "green" if "ONLINE" in status else "orange" if "BATT" in status else "red"
+        charge_color = "#2ca02c"; timeleft_color = "#ff7f0e"; linev_color = "#1f77b4"
+
+        self.labels['UPS_Status'].setText(f"Status: <b style='color:{status_color};'>{status}</b>")
+        self.labels['UPS_Charge'].setText(f"Charge: <b style='color:{charge_color};'>{charge:.1f} %</b>")
+        self.labels['UPS_TimeLeft'].setText(f"Time Left: <b style='color:{timeleft_color};'>{timeleft:.1f} min</b>")
+        self.labels['UPS_LineV'].setText(f"Line V: <b style='color:{linev_color};'>{linev:.1f} V</b>")
+
         ts = time.time(); ptr = self.pointers['ups']
-        self.ups_data[ptr] = [ts, data.get('LINEV', np.nan), data.get('BCHARGE', np.nan), data.get('TIMELEFT', np.nan)]
+        self.ups_data[ptr] = [ts, linev, charge, timeleft]
         self.pointers['ups'] = (ptr + 1) % self.max_lens['ups']
         self.plot_dirty_flags.update({"ups_linev": True, "ups_bcharge": True, "ups_timeleft": True})
+
+        # --- 2. 비상 종료 조건 확인 및 상태 인디케이터 업데이트 로직 ---
+        shutdown_threshold_min = 15.0 
+
+        if "BATT" in status and timeleft < shutdown_threshold_min and not self.emergency_shutdown_triggered:
+            self.emergency_shutdown_triggered = True
+            self._trigger_emergency_hv_shutdown()
+        
+        elif "ONLINE" in status and self.emergency_shutdown_triggered:
+            logging.info("AC power restored. Resetting emergency HV shutdown flag.")
+            self.emergency_shutdown_triggered = False
+        
+        # === 변경점: HV 종료 상태 인디케이터를 3줄 형식으로 업데이트 ===
+        if self.emergency_shutdown_triggered:
+            self.labels['HV_Shutdown_Status'].setText("HV Status:<br><b style='color:red; font-size:14pt;'>SHUTDOWN ACTIVE</b>")
+        elif "BATT" in status:
+            self.labels['HV_Shutdown_Status'].setText(f"HV Status:<br><b style='color:orange; font-size:14pt;'>ON BATTERY</b><br>({timeleft:.0f} min left)")
+        else:
+            self.labels['HV_Shutdown_Status'].setText("HV Status:<br><b style='color:green; font-size:14pt;'>NORMAL</b>")
 
     @pyqtSlot(dict)
     def update_raw_ui(self, data):
