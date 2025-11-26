@@ -8,7 +8,7 @@
     "database": {
         "enabled": true,
         "user": "RENE_PM_ADMIN",
-        "password": "rene!Q@W#E$R",
+        "password": "",
         "database": "RENE_PM",
         "unix_socket": "/home/mariadb_data/mysql/mysql.sock",
         "pool_name": "rene_pm_pool",
