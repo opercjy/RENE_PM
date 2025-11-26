@@ -1,36 +1,59 @@
-2025-09-16 17:47:53,736 - INFO - [MainThread] - ==================================================
+2025-11-26 12:01:00,465 - INFO - [MainThread] - ==================================================
 RENE-PM Integrated Monitoring System Starting
 ==================================================
-2025-09-16 17:47:54,054 - INFO - [MainThread] - Database connection pool 'rene_pm_pool' created with size 5.
-2025-09-16 17:47:54,054 - INFO - [MainThread] - Worker for 'caen_hv' started.
-2025-09-16 17:47:54,054 - INFO - [Dummy-1] - Connecting to CAEN HV at 192.168.0.39...
-2025-09-16 17:47:54,055 - INFO - [Dummy-2] - HardwareManager scan started in a new thread.
-2025-09-16 17:47:54,100 - INFO - [Dummy-3] - Database tables are ready.
-2025-09-16 17:47:54,100 - INFO - [Dummy-3] - Database worker started, using shared connection pool.
-2025-09-16 17:47:54,181 - INFO - [Dummy-1] - Successfully connected to CAEN HV system.
-2025-09-16 17:47:54,193 - INFO - [MainThread] - HV Connection Status Changed: Connected
-2025-09-16 17:47:56,306 - INFO - [MainThread] - Worker for 'magnetometer' started.
-2025-09-16 17:47:56,307 - INFO - [MainThread] - Worker for 'radon' started.
-2025-09-16 17:47:56,308 - INFO - [MainThread] - Worker for 'daq' started.
-2025-09-16 17:47:56,309 - INFO - [MainThread] - Worker for 'arduino' started.
-2025-09-16 17:47:56,310 - INFO - [Dummy-6] - Arduino worker started with 2000ms interval.
-2025-09-16 17:47:56,310 - INFO - [MainThread] - Worker for 'th_o2' started.
-2025-09-16 17:47:56,312 - INFO - [Dummy-7] - TH/O2 worker started with 2000ms interval.
-2025-09-16 17:47:56,320 - INFO - [Dummy-8] - [Magnetometer] Successfully connected to device.
-2025-09-16 17:47:56,348 - INFO - [Dummy-9] - Activated module LS_Temperature (SN: 015362E3) as cDAQ1Mod1
-2025-09-16 17:47:56,348 - INFO - [Dummy-9] - Activated module LS_Level (SN: 21A3509) as cDAQ1Mod2
-2025-09-16 17:48:24,083 - INFO - [MainThread] - Application closing...
-2025-09-16 17:48:24,083 - INFO - [Dummy-3] - Processing remaining items before stopping DB worker.
-2025-09-16 17:48:24,083 - INFO - [Dummy-3] - DB worker stopped.
-2025-09-16 17:48:24,084 - INFO - [Dummy-1] - CAEN device closed.
-2025-09-16 17:48:24,095 - INFO - [Dummy-7] - TH/O2 worker stopped and client closed.
-2025-09-16 17:48:24,125 - INFO - [Dummy-6] - Arduino worker stopped and serial port closed.
-2025-09-16 17:48:28,083 - WARNING - [MainThread] - db worker thread did not finish cleanly.
-2025-09-16 17:48:32,084 - WARNING - [MainThread] - caen_hv worker thread did not finish cleanly.
-2025-09-16 17:48:36,084 - WARNING - [MainThread] - magnetometer worker thread did not finish cleanly.
-2025-09-16 17:48:40,085 - WARNING - [MainThread] - radon worker thread did not finish cleanly.
-2025-09-16 17:48:44,085 - WARNING - [MainThread] - daq worker thread did not finish cleanly.
-2025-09-16 17:48:48,086 - WARNING - [MainThread] - arduino worker thread did not finish cleanly.
-2025-09-16 17:48:52,086 - WARNING - [MainThread] - th_o2 worker thread did not finish cleanly.
-2025-09-16 17:48:52,087 - INFO - [MainThread] - Database connection pool closed.
-2025-09-16 17:48:52,087 - INFO - [MainThread] - All threads stopped. Exiting.
+2025-11-26 12:01:00,762 - INFO - [MainThread] - Database connection pool created.
+2025-11-26 12:01:00,763 - INFO - [MainThread] - Worker for 'caen_hv' started.
+2025-11-26 12:01:00,763 - INFO - [Dummy-1] - Connecting to CAEN HV at 192.168.0.39...
+2025-11-26 12:01:00,795 - INFO - [Dummy-2] - HardwareManager scan started in a new thread.
+2025-11-26 12:01:00,800 - INFO - [Dummy-3] - Database tables and indexes are ready.
+2025-11-26 12:01:00,800 - INFO - [Dummy-3] - Database worker started, using shared connection pool.
+2025-11-26 12:01:00,862 - INFO - [Dummy-1] - Successfully connected to CAEN HV system.
+2025-11-26 12:01:00,870 - INFO - [MainThread] - HV Connection Status Changed: Connected
+2025-11-26 12:01:03,037 - INFO - [MainThread] - Worker for 'magnetometer' started.
+2025-11-26 12:01:03,037 - INFO - [Dummy-6] - [Magnetometer] Attempting to connect...
+2025-11-26 12:01:03,039 - INFO - [MainThread] - Worker for 'arduino' started.
+2025-11-26 12:01:03,039 - INFO - [Dummy-7] - Arduino worker started with 2000ms interval.
+2025-11-26 12:01:03,039 - INFO - [MainThread] - Worker for 'th_o2' started.
+2025-11-26 12:01:03,041 - INFO - [MainThread] - Worker for 'daq' started.
+2025-11-26 12:01:03,042 - INFO - [Dummy-8] - TH/O2 worker started with 2000ms interval.
+2025-11-26 12:01:03,043 - INFO - [MainThread] - Worker for 'ups' started.
+2025-11-26 12:01:03,046 - INFO - [MainThread] - Worker for 'radon' started.
+2025-11-26 12:01:03,090 - INFO - [Dummy-9] - Activated module LS_Temperature (SN: 015362E3) as cDAQ1Mod1
+2025-11-26 12:01:03,090 - INFO - [Dummy-9] - Activated module LS_Level (SN: 21A3509) as cDAQ1Mod2
+2025-11-26 12:01:03,536 - INFO - [Dummy-10] - UPS worker started with 5s interval.
+2025-11-26 12:01:05,057 - INFO - [Dummy-6] - [Magnetometer] Successfully connected to device. ID: Metrolab Technology SA,TFM1186,0003055,elA3-prA1-fw3.1
+2025-11-26 12:02:00,690 - INFO - [Dummy-3] - Successfully inserted batch of 2 items.
+2025-11-26 12:03:00,692 - INFO - [Dummy-3] - Successfully inserted batch of 103 items.
+2025-11-26 12:04:00,642 - INFO - [Dummy-3] - Successfully inserted batch of 103 items.
+2025-11-26 12:05:00,684 - INFO - [Dummy-3] - Successfully inserted batch of 102 items.
+2025-11-26 12:06:00,707 - INFO - [Dummy-3] - Successfully inserted batch of 103 items.
+2025-11-26 12:07:00,707 - INFO - [Dummy-3] - Successfully inserted batch of 103 items.
+2025-11-26 12:08:00,707 - INFO - [Dummy-3] - Successfully inserted batch of 103 items.
+2025-11-26 12:09:00,705 - INFO - [Dummy-3] - Successfully inserted batch of 102 items.
+2025-11-26 12:10:00,697 - INFO - [Dummy-3] - Successfully inserted batch of 103 items.
+2025-11-26 12:11:00,705 - INFO - [Dummy-3] - Successfully inserted batch of 103 items.
+2025-11-26 12:12:00,681 - INFO - [Dummy-3] - Successfully inserted batch of 104 items.
+2025-11-26 12:13:00,707 - INFO - [Dummy-3] - Successfully inserted batch of 103 items.
+2025-11-26 12:14:00,651 - INFO - [Dummy-3] - Successfully inserted batch of 102 items.
+2025-11-26 12:15:00,708 - INFO - [Dummy-3] - Successfully inserted batch of 103 items.
+2025-11-26 12:16:00,707 - INFO - [Dummy-3] - Successfully inserted batch of 103 items.
+2025-11-26 12:17:00,708 - INFO - [Dummy-3] - Successfully inserted batch of 103 items.
+2025-11-26 12:18:00,647 - INFO - [Dummy-3] - Successfully inserted batch of 102 items.
+2025-11-26 12:19:00,687 - INFO - [Dummy-3] - Successfully inserted batch of 103 items.
+2025-11-26 12:20:00,707 - INFO - [Dummy-3] - Successfully inserted batch of 103 items.
+2025-11-26 12:21:00,701 - INFO - [Dummy-3] - Successfully inserted batch of 103 items.
+2025-11-26 12:22:00,707 - INFO - [Dummy-3] - Successfully inserted batch of 104 items.
+2025-11-26 12:23:00,698 - INFO - [Dummy-3] - Successfully inserted batch of 102 items.
+2025-11-26 12:24:00,705 - INFO - [Dummy-3] - Successfully inserted batch of 103 items.
+2025-11-26 12:25:00,701 - INFO - [Dummy-3] - Successfully inserted batch of 103 items.
+2025-11-26 12:26:00,705 - INFO - [Dummy-3] - Successfully inserted batch of 103 items.
+2025-11-26 12:27:00,707 - INFO - [Dummy-3] - Successfully inserted batch of 102 items.
+2025-11-26 12:28:00,700 - INFO - [Dummy-3] - Successfully inserted batch of 103 items.
+2025-11-26 12:29:00,668 - INFO - [Dummy-3] - Successfully inserted batch of 103 items.
+2025-11-26 12:30:00,666 - INFO - [Dummy-3] - Successfully inserted batch of 103 items.
+2025-11-26 12:31:00,662 - INFO - [Dummy-3] - Successfully inserted batch of 103 items.
+2025-11-26 12:32:00,666 - INFO - [Dummy-3] - Successfully inserted batch of 103 items.
+2025-11-26 12:33:00,669 - INFO - [Dummy-3] - Successfully inserted batch of 103 items.
+2025-11-26 12:34:00,668 - INFO - [Dummy-3] - Successfully inserted batch of 103 items.
+2025-11-26 12:35:00,706 - INFO - [Dummy-3] - Successfully inserted batch of 103 items.
+2025-11-26 12:36:00,669 - INFO - [Dummy-3] - Successfully inserted batch of 102 items.
