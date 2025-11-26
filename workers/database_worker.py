@@ -174,6 +174,7 @@ class DatabaseWorker(QObject):
             conn.commit()
             # 실제 처리된 레코드 수로 로그 메시지 수정
             logging.info(f"Successfully inserted batch of {processed_record_count} records.")
+            
         except mariadb.Error as e:
             logging.error(f"DB insert error: {e}. Rolling back...")
             if conn: conn.rollback()

@@ -1,0 +1,37 @@
+2025-11-27 00:15:18,067 - INFO - [MainThread] - ==================================================
+RENE-PM v2.1 Integrated Monitoring System Starting
+==================================================
+2025-11-27 00:15:18,394 - INFO - [MainThread] - Starting delayed initialization...
+2025-11-27 00:15:18,397 - INFO - [MainThread] - Database connection pool created.
+2025-11-27 00:15:18,398 - INFO - [MainThread] - Worker for 'caen_hv' started.
+2025-11-27 00:15:18,398 - INFO - [Dummy-1] - Connecting to CAEN HV at 192.168.0.39...
+2025-11-27 00:15:18,398 - INFO - [MainThread] - Worker for 'netio_pdu' started.
+2025-11-27 00:15:18,399 - INFO - [Dummy-2] - Database tables and indexes are ready (including PDU_DATA).
+2025-11-27 00:15:18,399 - INFO - [Dummy-2] - Database worker started, using shared connection pool.
+2025-11-27 00:15:18,400 - INFO - [Dummy-3] - HardwareManager scan started in a new thread.
+2025-11-27 00:15:18,400 - INFO - [MainThread] - Initialization complete. System is ready.
+2025-11-27 00:15:18,499 - INFO - [Dummy-1] - Successfully connected to CAEN HV system.
+2025-11-27 00:15:18,499 - INFO - [MainThread] - HV Connection Status Changed: Connected
+2025-11-27 00:15:20,987 - INFO - [MainThread] - Worker for 'radon' started.
+2025-11-27 00:15:20,988 - INFO - [MainThread] - Worker for 'daq' started.
+2025-11-27 00:15:20,989 - INFO - [MainThread] - Worker for 'th_o2' started.
+2025-11-27 00:15:20,990 - INFO - [MainThread] - Worker for 'magnetometer' started.
+2025-11-27 00:15:20,990 - INFO - [Dummy-6] - [Magnetometer] Attempting to connect...
+2025-11-27 00:15:20,992 - INFO - [MainThread] - Worker for 'ups' started.
+2025-11-27 00:15:20,992 - INFO - [Dummy-7] - TH/O2 worker started with 2000ms interval.
+2025-11-27 00:15:20,997 - INFO - [MainThread] - Worker for 'arduino' started.
+2025-11-27 00:15:20,998 - INFO - [Dummy-8] - Arduino worker started with 2000ms interval.
+2025-11-27 00:15:21,028 - INFO - [Dummy-9] - UPS worker started with 5s interval.
+2025-11-27 00:15:21,036 - INFO - [Dummy-10] - Activated module LS_Temperature (SN: 015362E3) as cDAQ1Mod1
+2025-11-27 00:15:21,037 - INFO - [Dummy-10] - Activated module LS_Level (SN: 21A3509) as cDAQ1Mod2
+2025-11-27 00:15:23,014 - INFO - [Dummy-6] - [Magnetometer] Successfully connected to device. ID: Metrolab Technology SA,TFM1186,0003055,elA3-prA1-fw3.1
+2025-11-27 00:16:18,852 - INFO - [Dummy-2] - Successfully inserted batch of 194 records.
+2025-11-27 00:17:18,828 - INFO - [Dummy-2] - Successfully inserted batch of 199 records.
+2025-11-27 00:18:18,816 - INFO - [Dummy-2] - Successfully inserted batch of 103 records.
+2025-11-27 00:19:18,841 - INFO - [Dummy-2] - Successfully inserted batch of 294 records.
+2025-11-27 00:20:18,820 - INFO - [Dummy-2] - Successfully inserted batch of 199 records.
+2025-11-27 00:21:18,816 - INFO - [Dummy-2] - Successfully inserted batch of 199 records.
+2025-11-27 00:22:18,817 - INFO - [Dummy-2] - Successfully inserted batch of 199 records.
+2025-11-27 00:23:18,820 - INFO - [Dummy-2] - Successfully inserted batch of 102 records.
+2025-11-27 00:24:18,813 - INFO - [Dummy-2] - Successfully inserted batch of 295 records.
+2025-11-27 00:25:18,823 - INFO - [Dummy-2] - Successfully inserted batch of 199 records.

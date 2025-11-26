@@ -119,7 +119,14 @@ class MainWindow(QMainWindow):
             "T1(°C)": "Temp1", "H1(%)": "Humi1", "T2(°C)": "Temp2", "H2(%)": "Humi2", "Dist(cm)": "Dist", "Radon (μ)": "Radon_Value"
         }
         self.ui_manager = UIManager(self); self.plot_manager = PlotManager(self); self.curves = {}
-        self._init_data(); self._init_ui(); self._init_curve_data_map(); self._init_timers_and_workers()
+        self._init_data(); self._init_ui(); self._init_curve_data_map(); 
+        #self._init_timers_and_workers()
+
+    @pyqtSlot()
+    def delayed_init(self):
+        logging.info("Starting delayed initialization...")
+        self._init_timers_and_workers()
+        logging.info("Initialization complete. System is ready.")
 
     # [v2.1 신규 추가] DB 큐 삽입 슬롯 (PDUWorker 등 시그널 기반 워커용)
     @pyqtSlot(dict)
@@ -148,7 +155,7 @@ class MainWindow(QMainWindow):
 
     def _init_ui(self):
         # [v2.1 수정] 타이틀 변경
-        self.setWindowTitle("RENE-PM v2.1 - Integrated Environment, HV & Power Monitoring"); self.setGeometry(50, 50, 1920, 1080)
+        self.setWindowTitle("RENE-PM v2.0.1"); self.setGeometry(50, 50, 1920, 1080)
         self.menu_bar = self.menuBar()
         file_menu = self.menu_bar.addMenu("File")
         restart_action = QAction("Restart Program to Reload Config", self); restart_action.triggered.connect(self._restart_application); file_menu.addAction(restart_action)
@@ -1671,10 +1678,15 @@ if __name__ == '__main__':
     log_level = CONFIG.get('logging_level', 'INFO').upper()
     log_filename = "rene_pm.log"
     # [v2.1 참고] 로그 파일 모드를 'a'(append)로 변경하는 것이 일반적이나, v2.0 코드의 'w'(write) 유지
-    file_handler = logging.FileHandler(log_filename, 'w'); stream_handler = logging.StreamHandler()
-    logging.basicConfig(level=getattr(logging, log_level, logging.INFO),
-                        format='%(asctime)s - %(levelname)s - [%(threadName)s] - %(message)s',
-                        handlers=[file_handler, stream_handler])
+    file_handler = logging.FileHandler(log_filename, 'w')
+    stream_handler = logging.StreamHandler()
+    
+    logging.basicConfig(
+        level=getattr(logging, log_level, logging.INFO),
+        format='%(asctime)s - %(levelname)s - [%(threadName)s] - %(message)s',
+        handlers=[file_handler, stream_handler],
+        force=True  # <--- [핵심] 이 옵션이 있어야 강제로 적용됩니다.
+    )
     
     # [v2.1 수정] 시작 로그 버전 변경
     logging.info("="*50 + "\nRENE-PM v2.1 Integrated Monitoring System Starting\n" + "="*50)
@@ -1688,11 +1700,15 @@ if __name__ == '__main__':
     
     main_win = MainWindow(config=CONFIG)
     
+    # 1. GUI 로그 핸들러 생성 및 연결 (이 시점에는 아직 워커가 실행되지 않음)
     log_gui_handler = LogHandler(app)
     log_gui_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
     log_gui_handler.new_log_message.connect(main_win._update_log_viewer)
     logging.getLogger().addHandler(log_gui_handler)
     
     main_win.show()
+    
+    # 2. 핸들러 연결이 완료된 후, 0초 뒤에 초기화 메서드 실행 예약
+    QTimer.singleShot(0, main_win.delayed_init)
     
     sys.exit(app.exec_())
