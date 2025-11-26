@@ -1,5 +1,14 @@
 import sys, time, numpy as np, os, math, signal, json, logging, queue
 from typing import Dict, Any
+from datetime import datetime # [v2.1 추가]
+
+# [v2.1 수정] sip 모듈 임포트 (QObject 생명주기 확인용 - RuntimeError 해결)
+try:
+    import sip
+except ImportError:
+    # PyQt5 환경에서는 sip가 필요함. 없으면 경고 출력.
+    logging.warning("Module 'sip' not found. Object deletion checks during shutdown might be less precise.")
+    sip = None
 
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QGridLayout, QHBoxLayout, QVBoxLayout,
                              QMessageBox, QLabel, QFrame, QStatusBar, QGroupBox, QTabWidget, QScrollArea,
@@ -18,8 +27,9 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import subprocess
 
+# [v2.1 수정] PDUWorker 임포트 추가
 from workers import (DatabaseWorker, DaqWorker, RadonWorker, MagnetometerWorker,
-                     ThO2Worker, ArduinoWorker, HVWorker, AnalysisWorker, UPSWorker)
+                     ThO2Worker, ArduinoWorker, HVWorker, AnalysisWorker, UPSWorker, PDUWorker)
 from workers.hardware_manager import HardwareManager
 from ui_manager import UIManager, PlotManager
 
@@ -83,6 +93,10 @@ class MainWindow(QMainWindow):
     hv_control_command = pyqtSignal(dict)
     request_hv_setpoints = pyqtSignal(int, int)
 
+    # [v2.1 신규 추가] PDU 제어 시그널 정의 (GUI -> Worker)
+    pdu_control_single = pyqtSignal(int, bool) # (port_num, state)
+    pdu_control_all = pyqtSignal(bool)        # (state)
+
     def __init__(self, config):
         super().__init__()
         self.config = config; self.db_queue = queue.Queue(); self.db_pool = None
@@ -93,6 +107,12 @@ class MainWindow(QMainWindow):
         self.latest_board_temps = {}; self.latest_ups_status = {}
         self.latest_radon_mu = 0.0; self.latest_radon_sigma = 0.0
         self.latest_radon_state = "Initializing"; self.latest_radon_countdown = -1
+
+        # [v2.1 신규 추가] PDU 관련 변수 초기화
+        self.pdu_port_widgets = {}
+        self.pdu_global_labels = {}
+        self.is_pdu_connected = False
+
         self.legend_to_label_map = {
             "L_LS_Temp": "L_LS_Temp", "R_LS_Temp": "R_LS_Temp", "GdLS Level": "GdLS_level", "GCLS Level": "GCLS_level",
             "Bx": "B_x", "By": "B_y", "Bz": "B_z", "|B|": "B", "Temp(°C)": "TH_O2_Temp", "Humi(%)": "TH_O2_Humi", "Oxygen(%)": "TH_O2_Oxygen",
@@ -100,6 +120,13 @@ class MainWindow(QMainWindow):
         }
         self.ui_manager = UIManager(self); self.plot_manager = PlotManager(self); self.curves = {}
         self._init_data(); self._init_ui(); self._init_curve_data_map(); self._init_timers_and_workers()
+
+    # [v2.1 신규 추가] DB 큐 삽입 슬롯 (PDUWorker 등 시그널 기반 워커용)
+    @pyqtSlot(dict)
+    def enqueue_data(self, data_packet):
+        """워커 스레드로부터 데이터를 받아 DB 큐에 삽입 (스레드 안전)"""
+        if data_packet:
+            self.db_queue.put(data_packet)
 
     def _init_data(self):
         days = self.config.get('gui', {}).get('max_data_points_days', 31)
@@ -111,8 +138,8 @@ class MainWindow(QMainWindow):
         self.ups_data = np.full((self.m1m_len, 4), np.nan)
         self.hv_graph_data = {}
         if self.config.get('caen_hv', {}).get("enabled"):
-            for slot_str, board in self.config['caen_hv']['crate_map'].items():
-                self.hv_graph_data[int(slot_str)] = np.full((self.m1m_len, 1 + board['channels'] * 2), np.nan)
+            for slot_str, board in self.config['caen_hv'].get('crate_map', {}).items():
+                self.hv_graph_data[int(slot_str)] = np.full((self.m1m_len, 1 + board.get('channels', 0) * 2), np.nan)
         self.pointers = {'daq':0,'radon':0,'mag':0,'th_o2':0,'arduino':0, 'ups':0, 'hv_graph':{}}
         for slot_str in self.hv_graph_data.keys(): self.pointers['hv_graph'][slot_str] = 0
         self.max_lens = {'daq': self.m1m_len, 'radon': self.m10m_len, 'mag': self.m1m_len, 
@@ -120,7 +147,8 @@ class MainWindow(QMainWindow):
                          'hv_graph': self.m1m_len}
 
     def _init_ui(self):
-        self.setWindowTitle("RENE-PM v2.0 - Integrated Environment & HV Monitoring"); self.setGeometry(50, 50, 1920, 1080)
+        # [v2.1 수정] 타이틀 변경
+        self.setWindowTitle("RENE-PM v2.1 - Integrated Environment, HV & Power Monitoring"); self.setGeometry(50, 50, 1920, 1080)
         self.menu_bar = self.menuBar()
         file_menu = self.menu_bar.addMenu("File")
         restart_action = QAction("Restart Program to Reload Config", self); restart_action.triggered.connect(self._restart_application); file_menu.addAction(restart_action)
@@ -165,7 +193,12 @@ class MainWindow(QMainWindow):
         self._init_tray_icon()
         if self.config.get('database',{}).get('enabled'):
             self._init_db_pool(); self._start_db_worker()
+        
+        # [v2.1 수정] HV와 PDU는 설정 활성화 시 즉시 시작
         if self.config.get('caen_hv', {}).get("enabled"): self._start_worker('caen_hv')
+        if self.config.get('netio_pdu', {}).get("enabled"): self._start_worker('netio_pdu')
+
+        # HardwareManager는 나머지 센서 탐지 및 활성화를 담당
         self.hw_thread = QThread(); self.hw_manager = HardwareManager(self.config)
         self.hw_manager.moveToThread(self.hw_thread); self.hw_manager.device_connected.connect(self.activate_sensor)
         self.hw_thread.started.connect(self.hw_manager.start_scan); self.hw_thread.start()
@@ -185,6 +218,12 @@ class MainWindow(QMainWindow):
     # --- UI 생성 함수들 (Create) ---
     def _create_graph_tab_panel(self):
         tab_widget = QTabWidget()
+
+        # [v2.1 신규 추가] Power Control (PDU) 탭 추가
+        if self.config.get('netio_pdu', {}).get("enabled"):
+             pdu_panel = self._create_pdu_panel()
+             tab_widget.addTab(pdu_panel, "⚡ Power Control (PDU)")
+
         if self.config.get('caen_hv', {}).get("enabled"):
             hv_control_panel = self._create_hv_control_panel(); tab_widget.addTab(hv_control_panel, "HV Control")
         env_panel = self._create_environment_panel(); tab_widget.addTab(env_panel, "Environment Graphs")
@@ -192,14 +231,141 @@ class MainWindow(QMainWindow):
             ups_panel = self._create_ups_panel(); tab_widget.addTab(ups_panel, "UPS Status")
         analysis_panel = self._create_analysis_panel(); tab_widget.addTab(analysis_panel, "Analysis")
         if self.config.get('caen_hv', {}).get("enabled"):
-            for slot_str, board in self.config['caen_hv']['crate_map'].items():
-                slot_panel = self._create_hv_slot_graph_panel(int(slot_str), board['channels'])
+            # 안전한 접근 방식 사용
+            for slot_str, board in self.config['caen_hv'].get('crate_map', {}).items():
+                slot_panel = self._create_hv_slot_graph_panel(int(slot_str), board.get('channels', 0))
                 tab_widget.addTab(slot_panel, f"HV Slot {slot_str} Graphs")
         guide_panel = self._create_guide_panel(); tab_widget.addTab(guide_panel, "Guide")
         notes_panel = self._create_notes_panel(); tab_widget.addTab(notes_panel, "Notes")
         return tab_widget
     
+    # [v2.1 신규 추가] PDU 제어 패널 생성
+    def _create_pdu_panel(self):
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setSpacing(10)
+
+        # 1. 상단: Global Status 및 일괄 제어
+        layout.addWidget(self._create_pdu_global_status_group())
+
+        # 2. 중단: 8개 포트 그리드
+        layout.addWidget(self._create_pdu_port_control_group())
+
+        # 3. 하단: PDU 제어 로그창
+        log_group = QGroupBox("PDU Control Log")
+        log_layout = QVBoxLayout()
+        self.pdu_log_text = QTextEdit()
+        self.pdu_log_text.setReadOnly(True)
+        self.pdu_log_text.setMaximumHeight(150)
+        log_layout.addWidget(self.pdu_log_text)
+        log_group.setLayout(log_layout)
+        layout.addWidget(log_group)
+
+        layout.addStretch(1)
+        return container
+
+    # [v2.1 신규 추가] PDU Global Status UI 생성
+    def _create_pdu_global_status_group(self):
+        group = QGroupBox("PDU Global Status")
+        layout = QHBoxLayout()
+
+        # 상태 표시 레이블
+        self.pdu_global_labels['conn'] = QLabel("DISCONNECTED")
+        self.pdu_global_labels['conn'].setStyleSheet("font-weight: bold; color: red;")
+        self.pdu_global_labels['volt'] = QLabel("0.0 V")
+        self.pdu_global_labels['freq'] = QLabel("0.00 Hz")
+        self.pdu_global_labels['power'] = QLabel("0 W")
+
+        # 스타일 강화
+        data_font = QFont()
+        data_font.setPointSize(12)
+        data_font.setBold(True)
+        for key in ['volt', 'freq', 'power']:
+            self.pdu_global_labels[key].setFont(data_font)
+
+        layout.addWidget(QLabel("Connection:")); layout.addWidget(self.pdu_global_labels['conn'])
+        layout.addStretch(1)
+        layout.addWidget(QLabel("Voltage:")); layout.addWidget(self.pdu_global_labels['volt'])
+        layout.addStretch(1)
+        layout.addWidget(QLabel("Frequency:")); layout.addWidget(self.pdu_global_labels['freq'])
+        layout.addStretch(1)
+        layout.addWidget(QLabel("Total Load:")); layout.addWidget(self.pdu_global_labels['power'])
+
+        # 일괄 제어 버튼
+        self.btn_pdu_all_on = QPushButton("⚡ ALL ON")
+        self.btn_pdu_all_on.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 5px;")
+        self.btn_pdu_all_on.clicked.connect(lambda: self._confirm_and_control_pdu_all(True))
+        
+        self.btn_pdu_all_off = QPushButton("❌ ALL OFF")
+        self.btn_pdu_all_off.setStyleSheet("background-color: #F44336; color: white; font-weight: bold; padding: 5px;")
+        self.btn_pdu_all_off.clicked.connect(lambda: self._confirm_and_control_pdu_all(False))
+
+        # 초기 비활성화
+        self.btn_pdu_all_on.setEnabled(False)
+        self.btn_pdu_all_off.setEnabled(False)
+
+        layout.addStretch(2)
+        layout.addWidget(self.btn_pdu_all_on)
+        layout.addWidget(self.btn_pdu_all_off)
+
+        group.setLayout(layout)
+        return group
+
+    # [v2.1 신규 추가] PDU Port Control UI 생성
+    def _create_pdu_port_control_group(self):
+        group = QGroupBox("PDU Output Ports")
+        grid = QGridLayout()
+        grid.setSpacing(8)
+        
+        # 헤더
+        headers = ["#", "Name", "State", "Power (W)", "Current (mA)", "Energy (Wh)", "Control"]
+        for i, header in enumerate(headers):
+            label = QLabel(header)
+            label.setStyleSheet("font-weight: bold; text-decoration: underline;")
+            grid.addWidget(label, 0, i, Qt.AlignCenter)
+
+        port_map = self.config.get('netio_pdu', {}).get('port_map', {})
+
+        for i in range(8):
+            port_num = i + 1; row = i + 1
+            port_name = port_map.get(str(port_num), f"Port {port_num}")
+
+            # 위젯 생성
+            label_state = QLabel("N/A"); label_state.setAlignment(Qt.AlignCenter)
+            self._set_pdu_port_style(label_state, None) # 초기 스타일 (N/A)
+
+            btn_on = QPushButton("ON"); btn_off = QPushButton("OFF")
+            
+            btn_on.clicked.connect(lambda checked, p=port_num: self._control_pdu_port(p, True))
+            btn_off.clicked.connect(lambda checked, p=port_num: self._control_pdu_port(p, False))
+            btn_on.setEnabled(False); btn_off.setEnabled(False) # 초기 비활성화
+
+            control_widget = QWidget()
+            control_layout = QHBoxLayout(control_widget)
+            control_layout.setContentsMargins(0, 0, 0, 0)
+            control_layout.addWidget(btn_on); control_layout.addWidget(btn_off)
+
+            # 위젯 저장
+            self.pdu_port_widgets[port_num] = {
+                'state_lbl': label_state,
+                'power': QLabel("0"), 'current': QLabel("0"), 'energy': QLabel("0"),
+                'btn_on': btn_on, 'btn_off': btn_off
+            }
+
+            # 그리드에 추가
+            grid.addWidget(QLabel(str(port_num)), row, 0, Qt.AlignCenter)
+            grid.addWidget(QLabel(port_name), row, 1)
+            grid.addWidget(label_state, row, 2)
+            grid.addWidget(self.pdu_port_widgets[port_num]['power'], row, 3, Qt.AlignRight)
+            grid.addWidget(self.pdu_port_widgets[port_num]['current'], row, 4, Qt.AlignRight)
+            grid.addWidget(self.pdu_port_widgets[port_num]['energy'], row, 5, Qt.AlignRight)
+            grid.addWidget(control_widget, row, 6)
+
+        group.setLayout(grid)
+        return group
+
     def _create_notes_panel(self):
+        # (v2.0과 동일)
         notes_group = QGroupBox("Notes")
         notes_layout = QVBoxLayout(notes_group)
         self.notes_edit = QTextEdit()
@@ -212,11 +378,13 @@ class MainWindow(QMainWindow):
         return notes_group
 
     def _create_environment_panel(self):
+        # (v2.0과 동일)
         container = QGroupBox("Environment Time-Series"); container.setFont(QFont("Arial", 12, QFont.Bold))
         plot_layout = QGridLayout(container); self.plot_manager.create_ui_elements(plot_layout)
         return container
     
     def _create_ups_panel(self):
+        # (v2.0과 동일)
         container = QGroupBox("UPS Time-Series"); container.setFont(QFont("Arial", 12, QFont.Bold))
         layout = QGridLayout(container)
         plot_widget = pg.PlotWidget()
@@ -239,9 +407,15 @@ class MainWindow(QMainWindow):
         return container
 
     def _create_hv_control_panel(self):
+        # (v2.0과 동일, 안전한 config 접근 추가)
         container = QWidget(); main_layout = QHBoxLayout(container)
         control_group = QGroupBox("HV Channel Control"); control_layout = QFormLayout(control_group)
-        self.control_slot_combo = QComboBox(); self.control_slot_combo.addItems(self.config['caen_hv']['crate_map'].keys())
+        self.control_slot_combo = QComboBox()
+        
+        # 안전한 접근 방식 사용
+        if self.config.get('caen_hv', {}).get('crate_map'):
+             self.control_slot_combo.addItems(self.config['caen_hv']['crate_map'].keys())
+
         channel_layout = QHBoxLayout()
         self.control_ch_start = QSpinBox(); self.control_ch_start.setRange(0, 99)
         self.control_ch_end = QSpinBox(); self.control_ch_end.setRange(0, 99)
@@ -272,51 +446,95 @@ class MainWindow(QMainWindow):
         self.single_channel_checkbox.setChecked(True)
         return container
     
+    # [v2.1 수정] _create_analysis_panel (PDU 분석 UI 추가)
     def _create_analysis_panel(self):
         container = QWidget(); main_layout = QVBoxLayout(container)
         control_panel = QFrame(); control_panel.setFrameShape(QFrame.StyledPanel)
         control_layout = QHBoxLayout(control_panel); control_layout.setAlignment(Qt.AlignLeft)
+        
         self.analysis_mode_combo = QComboBox(); self.analysis_mode_combo.addItems(["Time Series", "Correlation"])
+        
+        # --- Time Series Widgets ---
         self.timeseries_widget = QWidget()
         ts_layout = QHBoxLayout(self.timeseries_widget); ts_layout.setContentsMargins(0,0,0,0)
         self.analysis_combo = QComboBox()
+        
+        # [v2.1 수정] Analysis Map 확장 (PDU 추가)
         self.analysis_map = {
-            "LS Temperature (°C)": "SELECT `datetime`, `RTD_1`, `RTD_2` FROM LS_DATA", "LS Level (mm)": "SELECT `datetime`, `DIST_1`, `DIST_2` FROM LS_DATA",
-            "Magnetometer (mG)": "SELECT `datetime`, `Bx`, `By`, `Bz`, `B_mag` FROM MAGNETOMETER_DATA", "Radon (Bq/m³)": "SELECT `datetime`, `mu` FROM RADON_DATA",
-            "TH/O2 Sensor": "SELECT `datetime`, `temperature`, `humidity`, `oxygen` FROM TH_O2_DATA", "Arduino Sensor": "SELECT `datetime`, `analog_1`, `analog_2`, `analog_3`, `analog_4`, `analog_5` FROM ARDUINO_DATA",
-            "UPS Status": "SELECT `datetime`, `linev`, `bcharge`, `timeleft` FROM UPS_DATA", "Voltage (VMon)": "HV_QUERY", "Current (IMon)": "HV_QUERY","Board Temperature (°C)": "HV_TEMP_QUERY"
+            "LS Temperature (°C)": "SELECT `datetime`, `RTD_1`, `RTD_2` FROM LS_DATA", 
+            "LS Level (mm)": "SELECT `datetime`, `DIST_1`, `DIST_2` FROM LS_DATA",
+            "Magnetometer (mG)": "SELECT `datetime`, `Bx`, `By`, `Bz`, `B_mag` FROM MAGNETOMETER_DATA", 
+            "Radon (Bq/m³)": "SELECT `datetime`, `mu` FROM RADON_DATA",
+            "TH/O2 Sensor": "SELECT `datetime`, `temperature`, `humidity`, `oxygen` FROM TH_O2_DATA", 
+            "Arduino Sensor": "SELECT `datetime`, `analog_1`, `analog_2`, `analog_3`, `analog_4`, `analog_5` FROM ARDUINO_DATA",
+            "UPS Status": "SELECT `datetime`, `linev`, `bcharge`, `timeleft` FROM UPS_DATA", 
+            "HV Voltage (VMon)": "HV_QUERY", "HV Current (IMon)": "HV_QUERY", "HV Board Temperature (°C)": "HV_TEMP_QUERY",
+            # [v2.1 신규 추가] PDU 분석 옵션
+            "PDU Power (W)": "PDU_QUERY",
+            "PDU Current (mA)": "PDU_QUERY",
+            "PDU Energy (Wh)": "PDU_QUERY"
         }
         self.analysis_combo.addItems(self.analysis_map.keys())
+        
+        # -- HV Specific Controls (v2.0 기존 코드) --
         self.hv_specific_controls = QWidget()
         hv_spec_layout = QHBoxLayout(self.hv_specific_controls); hv_spec_layout.setContentsMargins(0,0,0,0)
         self.hv_slot_combo = QComboBox()
-        if self.config.get('caen_hv', {}).get("enabled"): self.hv_slot_combo.addItems(self.config['caen_hv']['crate_map'].keys())
+        if self.config.get('caen_hv', {}).get("enabled") and self.config['caen_hv'].get('crate_map'): 
+            self.hv_slot_combo.addItems(self.config['caen_hv']['crate_map'].keys())
         self.hv_ch_start = QSpinBox(); self.hv_ch_start.setRange(0, 99); self.hv_ch_end = QSpinBox(); self.hv_ch_end.setRange(0, 99)
         self.analysis_single_channel_checkbox = QCheckBox("Single")
         hv_spec_layout.addWidget(QLabel("Slot:")); hv_spec_layout.addWidget(self.hv_slot_combo)
         hv_spec_layout.addWidget(QLabel("Ch Start:")); hv_spec_layout.addWidget(self.hv_ch_start); hv_spec_layout.addWidget(QLabel("Ch End:")); hv_spec_layout.addWidget(self.hv_ch_end)
         hv_spec_layout.addWidget(self.analysis_single_channel_checkbox)
         self.analysis_single_channel_checkbox.setChecked(True); self.hv_specific_controls.hide()
+
+        # -- HV Board Temp Controls (v2.0 기존 코드) --
         self.board_temp_controls = QWidget()
         board_temp_layout = QHBoxLayout(self.board_temp_controls)
         board_temp_layout.setContentsMargins(0,0,0,0)
         board_temp_layout.addWidget(QLabel("Slots:"))
         self.slot_checkboxes = {}
-        if self.config.get('caen_hv', {}).get("enabled"):
+        if self.config.get('caen_hv', {}).get("enabled") and self.config['caen_hv'].get('crate_map'):
             for slot_str in self.config['caen_hv']['crate_map'].keys():
                 checkbox = QCheckBox(f"Slot {slot_str}")
                 self.slot_checkboxes[int(slot_str)] = checkbox
                 board_temp_layout.addWidget(checkbox)
         self.board_temp_controls.hide()
+
+        # -- [v2.1 신규 추가] PDU Specific Controls (체크박스 방식) --
+        self.pdu_specific_controls = QWidget()
+        pdu_spec_layout = QHBoxLayout(self.pdu_specific_controls)
+        pdu_spec_layout.setContentsMargins(0,0,0,0)
+        pdu_spec_layout.addWidget(QLabel("Ports:"))
+        self.pdu_port_checkboxes = {}
+        pdu_config = self.config.get('netio_pdu', {})
+        if pdu_config.get("enabled"):
+            # 포트 이름 대신 번호만 표시 (공간 절약 및 가독성 향상)
+            for i in range(1, 9):
+                checkbox = QCheckBox(f"P{i}")
+                self.pdu_port_checkboxes[i] = checkbox
+                pdu_spec_layout.addWidget(checkbox)
+        self.pdu_specific_controls.hide()
+
+        # -- Date Controls (v2.0 기존 코드) --
         self.analysis_start_date = QDateEdit(QDate.currentDate().addDays(-7))
         self.analysis_end_date = QDateEdit(QDate.currentDate())
         self.analysis_start_date.setCalendarPopup(True); self.analysis_end_date.setCalendarPopup(True)
-        ts_layout.addWidget(QLabel("Data:")); ts_layout.addWidget(self.analysis_combo); ts_layout.addWidget(self.hv_specific_controls); ts_layout.addWidget(self.board_temp_controls)
+        
+        # [v2.1 수정] Time Series Layout 구성
+        ts_layout.addWidget(QLabel("Data:")); ts_layout.addWidget(self.analysis_combo)
+        ts_layout.addWidget(self.hv_specific_controls)
+        ts_layout.addWidget(self.board_temp_controls)
+        ts_layout.addWidget(self.pdu_specific_controls) # PDU 컨트롤 추가
         ts_layout.addWidget(QLabel("Start:")); ts_layout.addWidget(self.analysis_start_date); ts_layout.addWidget(QLabel("End:")); ts_layout.addWidget(self.analysis_end_date)
+        
+        # --- Correlation Widgets (v2.0 기존 코드) ---
         self.correlation_widget = QWidget()
         corr_layout = QHBoxLayout(self.correlation_widget); corr_layout.setContentsMargins(0,0,0,0)
         self.corr_slot_combo = QComboBox()
-        if self.config.get('caen_hv', {}).get("enabled"): self.corr_slot_combo.addItems(self.config['caen_hv']['crate_map'].keys())
+        if self.config.get('caen_hv', {}).get("enabled") and self.config['caen_hv'].get('crate_map'): 
+             self.corr_slot_combo.addItems(self.config['caen_hv']['crate_map'].keys())
         self.corr_param_combo = QComboBox(); self.corr_param_combo.addItems(["VMon", "IMon"])
         self.corr_target_label = QLabel("Target: Slot 1 VMon vs LS Temp")
         self.corr_ch_start = QSpinBox(); self.corr_ch_start.setRange(0, 99); self.corr_ch_end = QSpinBox(); self.corr_ch_end.setRange(0, 99)
@@ -328,24 +546,35 @@ class MainWindow(QMainWindow):
         corr_layout.addWidget(QLabel("Param:")); corr_layout.addWidget(self.corr_param_combo); corr_layout.addWidget(self.corr_target_label)
         corr_layout.addWidget(QLabel("Start:")); corr_layout.addWidget(self.corr_start_date_edit); corr_layout.addWidget(QLabel("End:")); corr_layout.addWidget(self.corr_end_date_edit)
         self.correlation_widget.hide()
+        
+        # Control Layout (v2.0 기존 코드)
         self.plot_button = QPushButton("Plot Data"); self.export_button = QPushButton("Export to CSV")
         control_layout.addWidget(QLabel("Mode:")); control_layout.addWidget(self.analysis_mode_combo)
         control_layout.addWidget(self.timeseries_widget); control_layout.addWidget(self.correlation_widget)
         control_layout.addStretch(1); control_layout.addWidget(self.plot_button); control_layout.addWidget(self.export_button)
+        
+        # Signals/Slots
         self.analysis_mode_combo.currentTextChanged.connect(self._on_analysis_mode_changed)
         self.analysis_combo.currentTextChanged.connect(self._on_analysis_type_changed)
+        
+        # HV 관련 시그널 연결
         self.analysis_single_channel_checkbox.stateChanged.connect(self._toggle_single_channel_mode_analysis)
         self.hv_ch_start.valueChanged.connect(lambda val: self.hv_ch_end.setValue(val) if self.analysis_single_channel_checkbox.isChecked() else None)
+
+        # Correlation 시그널 연결
         self.corr_slot_combo.currentTextChanged.connect(self._update_correlation_display)
         self.corr_single_channel_checkbox.stateChanged.connect(self._toggle_single_channel_mode_correlation)
         self.corr_ch_start.valueChanged.connect(lambda val: self.corr_ch_end.setValue(val) if self.corr_single_channel_checkbox.isChecked() else None)
         self.corr_single_channel_checkbox.setChecked(True)
+
         self.plot_button.clicked.connect(self._run_analysis); self.export_button.clicked.connect(self._export_analysis_data)
+        
         self.analysis_canvas = FigureCanvas(Figure(figsize=(15, 6)))
         main_layout.addWidget(control_panel); main_layout.addWidget(self.analysis_canvas)
         return container
         
     def _create_hv_grid_panel(self):
+        # (v2.0과 동일)
         self.hv_crate_groupbox = QGroupBox("CAEN High Voltage Status"); self.hv_crate_groupbox.setFont(QFont("Arial", 12, QFont.Bold))
         hv_main_layout = QVBoxLayout(self.hv_crate_groupbox)
         self.hv_channel_widgets = {}
@@ -368,6 +597,7 @@ class MainWindow(QMainWindow):
         return self.hv_crate_groupbox
 
     def _create_hv_slot_graph_panel(self, slot, num_channels):
+        # (v2.0과 동일)
         container = QWidget(); layout = QHBoxLayout(container)
         def style_plot(plot_widget, title, y_label):
             plot_widget.setBackground('w'); plot_widget.setTitle(title, size='12pt')
@@ -387,6 +617,7 @@ class MainWindow(QMainWindow):
         return container
     
     def _create_guide_panel(self):
+        # (v2.0과 동일)
         container = QWidget()
         main_layout = QVBoxLayout(container)
         control_panel = QFrame()
@@ -419,6 +650,7 @@ class MainWindow(QMainWindow):
         return container
     
     def _draw_default_pmt_markers(self):
+        # (v2.0과 동일)
         for slot, channels in self.pmt_map.items():
             for channel, coords in channels.items():
                 x, y = coords[0], coords[1]
@@ -435,13 +667,63 @@ class MainWindow(QMainWindow):
                 self.guide_scene.addItem(text)
 
     # --- 누락되었던 함수들 (Slots and Helpers) ---
+
+    # [v2.1 신규 추가] PDU 포트 스타일 설정 헬퍼
+    def _set_pdu_port_style(self, label, state):
+        if state is True:
+            label.setText("ON")
+            label.setStyleSheet("background-color: #4CAF50; color: white; border-radius: 5px; font-weight: bold; padding: 3px;")
+        elif state is False:
+            label.setText("OFF")
+            label.setStyleSheet("background-color: #9E9E9E; color: white; border-radius: 5px; font-weight: bold; padding: 3px;")
+        else: # None (Unknown/Disconnected)
+            label.setText("N/A")
+            label.setStyleSheet("background-color: #FFC107; color: black; border-radius: 5px; font-weight: bold; padding: 3px;")
+
+    # [v2.1 신규 추가] PDU 개별 포트 제어 핸들러
+    def _control_pdu_port(self, port_num, state):
+        if not self.is_pdu_connected:
+            self._update_pdu_log("WARNING", "Cannot control port when PDU is disconnected.")
+            return
+
+        # PDU 제어 시그널 발생 (Worker에게 전달)
+        self.pdu_control_single.emit(port_num, state)
+        
+        # 제어 요청 시 버튼 일시적 비활성화
+        if port_num in self.pdu_port_widgets:
+            self.pdu_port_widgets[port_num]['btn_on'].setEnabled(False)
+            self.pdu_port_widgets[port_num]['btn_off'].setEnabled(False)
+
+    # [v2.1 신규 추가] PDU 일괄 제어 핸들러 (확인 포함)
+    def _confirm_and_control_pdu_all(self, state):
+        if not self.is_pdu_connected:
+            self._update_pdu_log("WARNING", "Cannot control ports when PDU is disconnected.")
+            return
+            
+        action_str = "ON" if state else "OFF"
+        
+        # 경고 메시지 박스
+        reply = QMessageBox.warning(self, '⚠️ Confirm PDU ALL Control',
+                                     f"DANGER: Are you sure you want to turn ALL PDU ports {action_str}?\nThis will affect all connected equipment.",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        
+        if reply == QMessageBox.Yes:
+            self.pdu_control_all.emit(state)
+            # 버튼 존재 확인 후 비활성화
+            if hasattr(self, 'btn_pdu_all_on'): self.btn_pdu_all_on.setEnabled(False)
+            if hasattr(self, 'btn_pdu_all_off'): self.btn_pdu_all_off.setEnabled(False)
+        else:
+            self._update_pdu_log("INFO", f"PDU ALL ports {action_str} command cancelled by user.")
+
     def _toggle_single_channel_mode(self, state):
+        # (v2.0과 동일)
         is_single_mode = (state == Qt.Checked)
         self.control_ch_end.setEnabled(not is_single_mode)
         if is_single_mode:
             self.control_ch_end.setValue(self.control_ch_start.value())
             
     def _on_analysis_mode_changed(self, mode):
+        # (v2.0과 동일)
         if mode == "Time Series":
             self.timeseries_widget.show()
             self.correlation_widget.hide()
@@ -450,8 +732,13 @@ class MainWindow(QMainWindow):
             self.correlation_widget.show()
 
     def _update_correlation_display(self, slot_str):
+        # (v2.0과 동일)
         if not slot_str: return
-        slot = int(slot_str)
+        try:
+            slot = int(slot_str)
+        except ValueError:
+            return
+
         if slot == 1:
             target_temp = "LS Temp"
         else:
@@ -460,6 +747,7 @@ class MainWindow(QMainWindow):
         self.corr_target_label.setText(f"Target: Slot {slot} {param} vs {target_temp}")
 
     def _update_radon_display(self):
+        # (v2.0과 동일)
         """저장된 라돈 데이터를 조합하여 4줄 형식으로 라벨에 표시합니다."""
         line1 = "<b>Radon Value:</b>"
         line2 = f"{self.latest_radon_mu:.2f} &plusmn; {self.latest_radon_sigma:.2f}"
@@ -469,30 +757,39 @@ class MainWindow(QMainWindow):
         line4 = f"({self.latest_radon_countdown}s left)" if self.latest_radon_countdown >= 0 else ""
 
         combined_text = f"{line1}<br>{line2}<br>{line3}<br>{line4}"
-        self.labels["Radon_Value"].setText(combined_text)
+        # [v2.1 참고] self.labels는 UIManager에서 설정됨
+        if hasattr(self, 'labels') and "Radon_Value" in self.labels:
+             self.labels["Radon_Value"].setText(combined_text)
         
     def _toggle_single_channel_mode_analysis(self, state):
+        # (v2.0과 동일)
         is_single_mode = (state == Qt.Checked)
         self.hv_ch_end.setEnabled(not is_single_mode)
         if is_single_mode:
             self.hv_ch_end.setValue(self.hv_ch_start.value())
 
     def _toggle_single_channel_mode_correlation(self, state):
+        # (v2.0과 동일)
         is_single_mode = (state == Qt.Checked)
         self.corr_ch_end.setEnabled(not is_single_mode)
         if is_single_mode:
             self.corr_ch_end.setValue(self.corr_ch_start.value())
 
     def _trigger_emergency_hv_shutdown(self):
+        # (v2.0과 동일)
         logging.warning("UPS BATTERY LOW. Triggering emergency HV shutdown.")
-        self.hv_control_log.append(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] WARNING: UPS BATTERY LOW. SHUTTING DOWN ALL HV CHANNELS.")
-        for slot_str, board_info in self.config['caen_hv']['crate_map'].items():
+        if hasattr(self, 'hv_control_log'):
+             self.hv_control_log.append(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] WARNING: UPS BATTERY LOW. SHUTTING DOWN ALL HV CHANNELS.")
+        
+        # [v2.1 참고] config 접근 안전성 강화
+        for slot_str, board_info in self.config.get('caen_hv', {}).get('crate_map', {}).items():
             slot = int(slot_str)
             channels = list(range(board_info['channels']))
             command = {'type': 'set_power', 'slot': slot, 'channels': channels, 'value': False}
             self.hv_control_command.emit(command)
 
     def _update_system_status_indicator(self):
+        # (v2.0과 동일)
         status = self.latest_ups_status.get('STATUS', 'N/A')
         timeleft = self.latest_ups_status.get('TIMELEFT', 0.0)
         
@@ -514,9 +811,13 @@ class MainWindow(QMainWindow):
         
         temp_text = " | ".join(temp_parts)
         final_text = f"{hv_status_text}<br><br>Board Temps:<br><b>{temp_text}</b>"
-        self.labels['HV_Shutdown_Status'].setText(final_text)
+
+        # [v2.1 참고] self.labels는 UIManager에서 설정됨
+        if hasattr(self, 'labels') and 'HV_Shutdown_Status' in self.labels:
+            self.labels['HV_Shutdown_Status'].setText(final_text)
 
     def _restart_application(self):
+        # (v2.0과 동일)
         reply = QMessageBox.question(self, 'Confirm Restart',
             "Are you sure you want to restart the application? All unsaved data will be lost.",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
@@ -531,16 +832,22 @@ class MainWindow(QMainWindow):
             qApp.exit(0)
 
     def _request_hv_setpoints(self):
-        slot = int(self.control_slot_combo.currentText())
-        channel = self.control_ch_start.value()
-        self.request_hv_setpoints.emit(slot, channel)
+        # (v2.0과 동일, 예외 처리 추가)
+        try:
+            slot = int(self.control_slot_combo.currentText())
+            channel = self.control_ch_start.value()
+            self.request_hv_setpoints.emit(slot, channel)
+        except ValueError:
+            pass # 콤보 박스가 비어있거나 숫자가 아닌 경우 무시
 
     @pyqtSlot(dict)
     def _update_hv_control_setpoints(self, data):
+        # (v2.0과 동일)
         self.control_v0_spinbox.setValue(data.get('V0Set', 0))
         self.control_i0_spinbox.setValue(data.get('I0Set', 0))
 
     def _clear_pmt_highlight(self):
+         # (v2.0과 동일)
         if self.guide_marker and self.guide_marker in self.guide_scene.items():
             if hasattr(self, 'highlight_anim_group') and self.highlight_anim_group:
                 self.highlight_anim_group.stop()
@@ -548,6 +855,7 @@ class MainWindow(QMainWindow):
             self.guide_marker = None
 
     def _find_pmt_on_map(self):
+        # (v2.0과 동일)
         self._clear_pmt_highlight()
         slot = str(self.guide_slot_spin.value())
         channel = str(self.guide_ch_spin.value())
@@ -571,11 +879,13 @@ class MainWindow(QMainWindow):
             self.show_error(f"Position for Slot {slot}, Channel {channel} not found in pmt_map.json.")
             
     def _fit_guide_view(self):
+        # (v2.0과 동일)
         if hasattr(self, 'guide_pixmap_item'):
             visible_rect = QRectF(50, 50, 1820, 980)
             self.guide_view.fitInView(visible_rect, Qt.KeepAspectRatio)
 
     def _convert_daq_voltage_to_distance(self, v, mapping_index):
+        # (v2.0과 동일)
         try:
             daq_config = self.config.get('daq', {}); volt_module = next((mod for mod in daq_config.get('modules', []) if mod['task_type'] == 'volt'), None)
             if volt_module:
@@ -586,7 +896,9 @@ class MainWindow(QMainWindow):
             logging.warning(f"Failed to convert voltage to distance: {e}"); return 0.0
 
     def _set_indicator_label(self, key, text):
-        if key in self.labels:
+        # (v2.0과 동일)
+        # [v2.1 참고] self.labels는 UIManager에서 설정됨
+        if hasattr(self, 'labels') and key in self.labels:
             if key in self.indicator_colors:
                 color = self.indicator_colors[key]
                 self.labels[key].setStyleSheet(f"color: {color}; font-weight: bold;")
@@ -594,11 +906,17 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(str)
     def _update_hv_control_status(self, message):
+        # (v2.0과 동일)
         timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
-        self.hv_control_log.append(f"[{timestamp}] {message}")
+        if hasattr(self, 'hv_control_log'):
+            self.hv_control_log.append(f"[{timestamp}] {message}")
 
     def _send_hv_param_command(self):
-        slot = int(self.control_slot_combo.currentText()); ch_start = self.control_ch_start.value(); ch_end = self.control_ch_end.value()
+        # (v2.0과 동일, 예외 처리 추가)
+        try:
+            slot = int(self.control_slot_combo.currentText()); ch_start = self.control_ch_start.value(); ch_end = self.control_ch_end.value()
+        except ValueError: return
+
         v0 = self.control_v0_spinbox.value(); i0 = self.control_i0_spinbox.value()
         reply = QMessageBox.question(self, 'Confirm Action',
             f"Apply V0Set={v0}V, I0Set={i0}uA to Slot {slot}, Channels {ch_start}-{ch_end}?",
@@ -610,7 +928,11 @@ class MainWindow(QMainWindow):
             self.hv_control_command.emit(command)
 
     def _send_hv_power_command(self, power_state):
-        slot = int(self.control_slot_combo.currentText()); ch_start = self.control_ch_start.value(); ch_end = self.control_ch_end.value()
+        # (v2.0과 동일, 예외 처리 추가)
+        try:
+            slot = int(self.control_slot_combo.currentText()); ch_start = self.control_ch_start.value(); ch_end = self.control_ch_end.value()
+        except ValueError: return
+
         reply = QMessageBox.question(self, 'Confirm Action',
             f"Are you sure you want to turn Power {'ON' if power_state else 'OFF'} for Slot {slot}, Channels {ch_start}-{ch_end}?",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
@@ -619,55 +941,97 @@ class MainWindow(QMainWindow):
             command = {'type': 'set_power', 'slot': slot, 'channels': channels, 'value': power_state}
             self.hv_control_command.emit(command)
 
+    # [v2.1 수정] 분석 타입 변경 핸들러 (PDU 추가)
     def _on_analysis_type_changed(self, text):
-        if "Voltage (VMon)" in text or "Current (IMon)" in text:
-            self.hv_specific_controls.show()
-            self.board_temp_controls.hide()
-        elif "Board Temperature" in text:
-            self.hv_specific_controls.hide()
-            self.board_temp_controls.show()
-        else:
-            self.hv_specific_controls.hide()
-            self.board_temp_controls.hide()
+        # v2.0 기존 로직명 수정 반영
+        is_hv = "HV Voltage (VMon)" in text or "HV Current (IMon)" in text
+        is_hv_temp = "HV Board Temperature" in text
+        # [v2.1 신규 추가] PDU 분석 타입 확인
+        is_pdu = "PDU Power" in text or "PDU Current" in text or "PDU Energy" in text
 
+        if hasattr(self, 'hv_specific_controls'):
+            self.hv_specific_controls.setVisible(is_hv)
+        if hasattr(self, 'board_temp_controls'):
+            self.board_temp_controls.setVisible(is_hv_temp)
+        # [v2.1 신규 추가] PDU 컨트롤 표시/숨김
+        if hasattr(self, 'pdu_specific_controls'):
+            self.pdu_specific_controls.setVisible(is_pdu)
+
+    # [v2.1 수정] 분석 실행 로직 (PDU 쿼리 추가)
     def _run_analysis(self):
         if not self.db_pool: self.show_error("DB pool not available."); return
         self.plot_button.setEnabled(False); self.plot_button.setText("Loading...")
         mode = self.analysis_mode_combo.currentText()
         queries, params = [], []
+
         if mode == "Time Series":
             analysis_type = self.analysis_combo.currentText()
-            query = self.analysis_map[analysis_type]
+            query = self.analysis_map.get(analysis_type)
             start_date = self.analysis_start_date.date().toString("yyyy-MM-dd 00:00:00")
             end_date = self.analysis_end_date.date().toString("yyyy-MM-dd 23:59:59")
+
             if query == "HV_QUERY":
-                slot = self.hv_slot_combo.currentText()
-                ch_start = self.hv_ch_start.value()
-                ch_end = self.hv_ch_end.value()
-                final_query = "SELECT `datetime`, `channel`, `vmon`, `imon` FROM HV_DATA WHERE `slot` = ? AND `channel` BETWEEN ? AND ? AND `datetime` BETWEEN ? AND ?"
-                queries.append(final_query)
-                params.append([int(slot), ch_start, ch_end, start_date, end_date])
+                # (v2.0과 동일)
+                try:
+                    slot = self.hv_slot_combo.currentText()
+                    ch_start = self.hv_ch_start.value()
+                    ch_end = self.hv_ch_end.value()
+                    final_query = "SELECT `datetime`, `channel`, `vmon`, `imon` FROM HV_DATA WHERE `slot` = ? AND `channel` BETWEEN ? AND ? AND `datetime` BETWEEN ? AND ?"
+                    queries.append(final_query)
+                    params.append([int(slot), ch_start, ch_end, start_date, end_date])
+                except ValueError:
+                     self.show_error("Invalid HV parameters.")
+                     self._on_analysis_finished()
+                     return
+
             elif query == "HV_TEMP_QUERY":
+                # (v2.0과 동일)
                 selected_slots = [slot for slot, checkbox in self.slot_checkboxes.items() if checkbox.isChecked()]
                 if not selected_slots:
                     self.show_error("Please select at least one slot to plot.")
-                    self.plot_button.setEnabled(True); self.plot_button.setText("Plot Data")
+                    self._on_analysis_finished()
                     return
 
-                # 선택된 슬롯 수만큼 placeholder('?')를 생성
                 placeholders = ', '.join(['?'] * len(selected_slots))
                 final_query = f"SELECT DISTINCT `datetime`, `slot`, `board_temp` FROM HV_DATA WHERE `slot` IN ({placeholders}) AND `datetime` BETWEEN ? AND ?"
                 
-                # 파라미터 리스트 생성 (슬롯 목록 + 날짜)
                 query_params = selected_slots + [start_date, end_date]
                 queries.append(final_query)
                 params.append(query_params)
-            else:
+            
+            # [v2.1 신규 추가] PDU 쿼리 처리
+            elif query == "PDU_QUERY":
+                selected_ports = [port for port, checkbox in self.pdu_port_checkboxes.items() if checkbox.isChecked()]
+                if not selected_ports:
+                    self.show_error("Please select at least one PDU port to plot.")
+                    self._on_analysis_finished()
+                    return
+                
+                # 선택된 포트 수만큼 placeholder 생성
+                placeholders = ', '.join(['?'] * len(selected_ports))
+                # PDU_DATA는 DATETIME(3)을 사용함. 조회 범위는 start_date/end_date 그대로 사용 가능.
+                final_query = f"SELECT `datetime`, `port_idx`, `power_w`, `current_ma`, `energy_wh` FROM PDU_DATA WHERE `port_idx` IN ({placeholders}) AND `datetime` BETWEEN ? AND ?"
+                
+                # 파라미터 리스트 생성 (포트 목록 + 날짜)
+                query_params = selected_ports + [start_date, end_date]
+                queries.append(final_query)
+                params.append(query_params)
+
+            elif query:
+                # (v2.0과 동일 - 기타 센서)
                 final_query = f"{query} WHERE `datetime` BETWEEN ? AND ?"
                 queries.append(final_query)
                 params.append([start_date, end_date])
+
         elif mode == "Correlation":
-            slot = int(self.corr_slot_combo.currentText())
+            # (v2.0과 동일)
+            try:
+                slot = int(self.corr_slot_combo.currentText())
+            except ValueError:
+                self.show_error("Invalid slot selected for correlation.")
+                self._on_analysis_finished()
+                return
+
             ch_start = self.corr_ch_start.value()
             ch_end = self.corr_ch_end.value()
             start_date = self.corr_start_date_edit.date().toString("yyyy-MM-dd 00:00:00")
@@ -679,37 +1043,57 @@ class MainWindow(QMainWindow):
             else:
                 queries.append("SELECT `datetime`, `temperature` as temp FROM TH_O2_DATA WHERE `datetime` BETWEEN ? AND ? AND `temperature` IS NOT NULL")
             params.append([start_date, end_date])
-        self.analysis_thread = AnalysisWorker(self.db_pool, self.config['database'], queries, params)
-        self.analysis_thread.analysis_complete.connect(self._plot_analysis_data)
-        self.analysis_thread.error_occurred.connect(self.show_error)
-        self.analysis_thread.finished.connect(self._on_analysis_finished)
-        self.analysis_thread.start()
+        
+        # [v2.1 참고] AnalysisWorker 실행
+        if queries:
+            db_config = self.config.get('database', {})
+            if db_config:
+                # AnalysisWorker는 QThread를 상속받음
+                self.analysis_thread = AnalysisWorker(self.db_pool, db_config, queries, params)
+                self.analysis_thread.analysis_complete.connect(self._plot_analysis_data)
+                self.analysis_thread.error_occurred.connect(self.show_error)
+                self.analysis_thread.finished.connect(self._on_analysis_finished)
+                self.analysis_thread.start()
+            else:
+                 self.show_error("Database configuration not found.")
+                 self._on_analysis_finished()
+        else:
+             # 쿼리가 생성되지 않은 경우 (예: 분석 옵션 선택 오류)
+             self._on_analysis_finished()
 
+    # [v2.1 수정] 분석 데이터 플로팅 (PDU 시각화 추가)
     def _plot_analysis_data(self, dfs: list):
         if not dfs or any(df.empty for df in dfs):
             self.show_error("No data found for the selected period or parameters."); return
-        self.last_analysis_df = dfs[0]
+        
+        self.last_analysis_df = dfs[0] # 기본적으로 첫 번째 DataFrame을 내보내기 대상으로 설정
         self.analysis_canvas.figure.clear()
         mode = self.analysis_mode_combo.currentText()
         fig = self.analysis_canvas.figure
+
         if mode == "Time Series":
             analysis_type = self.analysis_combo.currentText()
             fig.suptitle(f"Time Series Analysis of {analysis_type}", fontsize=16)
             df = dfs[0]
+            # DATETIME(3) 형식을 포함할 수 있으므로 pandas datetime으로 변환
             df['datetime'] = pd.to_datetime(df['datetime'])
-            if "Voltage (VMon)" in analysis_type:
+
+            # [v2.1 수정] HV, HV Temp, PDU, 기타 센서 분기 처리
+            if "HV Voltage (VMon)" in analysis_type:
                 ax = fig.add_subplot(111)
                 ax.set_ylabel("Voltage (VMon)")
                 df_pivot = df.pivot(index='datetime', columns='channel', values='vmon')
                 df_pivot.plot(ax=ax, marker='.', linestyle='-', markersize=2)
                 ax.legend(title='Channel'); ax.grid(True, linestyle=':', alpha=0.7)
-            elif "Current (IMon)" in analysis_type:
+
+            elif "HV Current (IMon)" in analysis_type:
                 ax = fig.add_subplot(111)
                 ax.set_ylabel("Current (IMon, uA)")
                 df_pivot = df.pivot(index='datetime', columns='channel', values='imon')
                 df_pivot.plot(ax=ax, marker='.', linestyle='-', markersize=2)
                 ax.legend(title='Channel'); ax.grid(True, linestyle=':', alpha=0.7)
-            elif "Board Temperature" in analysis_type:
+
+            elif "HV Board Temperature" in analysis_type:
                 ax = fig.add_subplot(111)
                 ax.set_ylabel("Temperature (°C)")
                 df.set_index('datetime', inplace=True)
@@ -717,7 +1101,44 @@ class MainWindow(QMainWindow):
                     slot_df = df[df['slot'] == slot]
                     ax.plot(slot_df.index, slot_df['board_temp'], marker='.', linestyle='-', markersize=2, label=f'Slot {slot}')
                 ax.legend(); ax.grid(True)
+            
+            # [v2.1 신규 추가] PDU 데이터 플로팅
+            elif "PDU" in analysis_type:
+                ax = fig.add_subplot(111)
+                
+                if "Power (W)" in analysis_type:
+                    value_col = 'power_w'; y_label = "Power (W)"
+                elif "Current (mA)" in analysis_type:
+                    value_col = 'current_ma'; y_label = "Current (mA)"
+                elif "Energy (Wh)" in analysis_type:
+                    value_col = 'energy_wh'; y_label = "Energy (Wh)"
+                else:
+                    logging.warning(f"Unknown PDU analysis type: {analysis_type}")
+                    return 
+
+                ax.set_ylabel(y_label)
+                # 데이터를 포트별로 피벗하여 시각화
+                try:
+                    # pivot_table 사용으로 중복된 타임스탬프가 있을 경우 평균 처리 (안정성 향상)
+                    df_pivot = df.pivot_table(index='datetime', columns='port_idx', values=value_col, aggfunc='mean')
+                    
+                    # 포트 이름을 범례에 표시하기 위해 컬럼명 변경
+                    port_map = self.config.get('netio_pdu', {}).get('port_map', {})
+                    # 컬럼 타입(df_pivot.columns)이 정수형임을 가정하고 처리
+                    rename_dict = {k: port_map.get(str(k), f"Port {k}") for k in df_pivot.columns}
+                    df_pivot.rename(columns=rename_dict, inplace=True)
+
+                    # 내보내기용 데이터로 설정 (피벗된 데이터가 더 유용함)
+                    self.last_analysis_df = df_pivot.reset_index() 
+
+                    df_pivot.plot(ax=ax, marker='.', linestyle='-', markersize=2)
+                    ax.legend(title='Port'); ax.grid(True, linestyle=':', alpha=0.7)
+                except Exception as e:
+                    self.show_error(f"Error processing PDU data: {e}")
+                    logging.error(f"PDU data processing error (pivot/plot): {e}\nData head:\n{df.head()}")
+
             else:
+                # 기타 센서 플로팅 (v2.0과 동일)
                 ax = fig.add_subplot(111)
                 df.set_index('datetime', inplace=True)
                 y_label = analysis_type[analysis_type.find("(")+1:analysis_type.find(")")] if "(" in analysis_type else ""
@@ -726,7 +1147,9 @@ class MainWindow(QMainWindow):
                     if column != 'status':
                         ax.plot(df.index, df[column], marker='o', linestyle='-', markersize=2, label=column)
                 ax.legend(); ax.grid(True)
+
         elif mode == "Correlation":
+            # (v2.0과 동일)
             df_hv = dfs[0]; df_temp = dfs[1]
             if df_hv.empty or df_temp.empty: self.show_error("Not enough data for correlation."); return
             df_hv['datetime'] = pd.to_datetime(df_hv['datetime'])
@@ -736,7 +1159,11 @@ class MainWindow(QMainWindow):
             self.last_analysis_df = merged_df
             param = self.corr_param_combo.currentText().lower()
             slot = self.corr_slot_combo.currentText()
-            temp_name = "LS Temp" if int(slot) == 1 else "TH/O2 Temp"
+            try:
+                temp_name = "LS Temp" if int(slot) == 1 else "TH/O2 Temp"
+            except ValueError:
+                 temp_name = "Temp"
+
             fig.suptitle(f"Correlation of Slot {slot} {param.upper()} vs {temp_name}", fontsize=16)
             ax = fig.add_subplot(111)
             for channel in merged_df['channel'].unique():
@@ -749,6 +1176,7 @@ class MainWindow(QMainWindow):
                 ax.plot(merged_df['temp'], m * merged_df['temp'] + b, color='red', linewidth=2, linestyle='--', label='Overall Trend')
                 corr = merged_df['temp'].corr(merged_df[param])
                 ax.text(0.05, 0.95, f'Overall Trend:\ny = {m:.3f}x + {b:.2f}\nr = {corr:.3f}', transform=ax.transAxes, fontsize=10, verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+        
         fig.autofmt_xdate(); fig.tight_layout(rect=[0, 0.03, 1, 0.95]); self.analysis_canvas.draw()
 
     def _export_analysis_data(self):
@@ -759,28 +1187,33 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(self, "Save CSV File", default_filename, "CSV Files (*.csv)")
         if path:
             try:
+                # [v2.1 수정] PDU 데이터 등 피벗된 데이터는 index=False로 저장
                 self.last_analysis_df.to_csv(path, index=False)
                 QMessageBox.information(self, "Success", f"Data successfully exported to:\n{path}")
             except Exception as e:
                 self.show_error(f"Failed to export data: {e}")
 
     def _on_analysis_finished(self):
-        self.plot_button.setEnabled(True); self.plot_button.setText("Plot Data")
+        if hasattr(self, 'plot_button'):
+             self.plot_button.setEnabled(True); self.plot_button.setText("Plot Data")
 
     @pyqtSlot(str)
     def _update_log_viewer(self, message):
         max_lines = self.config.get('gui', {}).get('max_log_lines', 2000)
-        if self.log_viewer_text.document().blockCount() > max_lines:
-            cursor = self.log_viewer_text.textCursor()
-            cursor.movePosition(QTextCursor.Start); cursor.select(QTextCursor.BlockUnderCursor)
-            cursor.removeSelectedText(); cursor.deleteChar()
-        self.log_viewer_text.append(message.strip())
+        # [v2.1 참고] self.log_viewer_text는 UIManager에서 생성됨을 가정
+        if hasattr(self, 'log_viewer_text') and self.log_viewer_text:
+            if self.log_viewer_text.document().blockCount() > max_lines:
+                cursor = self.log_viewer_text.textCursor()
+                cursor.movePosition(QTextCursor.Start); cursor.select(QTextCursor.BlockUnderCursor)
+                cursor.removeSelectedText(); cursor.deleteChar()
+            self.log_viewer_text.append(message.strip())
 
     @pyqtSlot()
     def _update_clock(self): now = time.strftime('%Y-%m-%d %H:%M:%S'); self.clock_label.setText(f" {now} ")
     
     @pyqtSlot(str, int)
     def _update_radon_status(self, state, countdown):
+        # (v2.0과 동일)
         # 최신 상태를 클래스 변수에 저장하고 디스플레이 업데이트 함수 호출
         self.latest_radon_state = state
         self.latest_radon_countdown = countdown
@@ -788,11 +1221,13 @@ class MainWindow(QMainWindow):
     
     @pyqtSlot(bool)
     def _update_hv_connection(self, is_connected):
+        # (v2.0과 동일)
         status = "Connected" if is_connected else "Disconnected"
         logging.info(f"HV Connection Status Changed: {status}")
 
     @pyqtSlot()
     def _sample_hv_for_graph(self):
+        # (v2.0과 동일)
         current_time = time.time()
         for (slot, ch), values in self.latest_hv_values.items():
             if slot in self.hv_graph_data:
@@ -813,14 +1248,19 @@ class MainWindow(QMainWindow):
             'th_o2': ([], ["TH_O2_Temp","TH_O2_Humi","TH_O2_Oxygen"]),
             'arduino': ([], ["Temp1","Humi1","Temp2","Humi2","Dist","Temp3","Humi3","Temp4","Humi4"]), 
             'ups': ([], ["UPS_Status", "UPS_Charge", "UPS_TimeLeft", "UPS_LineV", "HV_Shutdown_Status"]), 
-            'caen_hv': ([], [])
+            'caen_hv': ([], []),
+            # [v2.1 신규 추가] PDU 활성화 등록
+            'netio_pdu': ([], [])
         }
         if name in ui_map:
-            for key in ui_map[name][1]:
-                if key in self.labels: self.labels[key].setVisible(True)
-        self._start_worker(name)
+            # [v2.1 참고] self.labels는 UIManager에서 설정됨
+            if hasattr(self, 'labels'):
+                 for key in ui_map[name][1]:
+                    if key in self.labels: self.labels[key].setVisible(True)
+            self._start_worker(name)
     
     def _start_db_worker(self):
+        # (v2.0과 동일)
         if 'db' in self.threads or not self.db_pool: return
         thread=QThread(); worker=DatabaseWorker(self.db_pool, self.config['database'], self.db_queue)
         worker.moveToThread(thread)
@@ -830,12 +1270,15 @@ class MainWindow(QMainWindow):
         thread.start()
         self.threads['db']=(thread,worker)
 
+    # [v2.1 수정] _start_worker 함수 (PDU 통합 및 초기화 로직 분기)
     def _start_worker(self, name):
         if name in self.threads: return
         worker_map = {
             'daq': (DaqWorker, True), 'radon': (RadonWorker, False), 'magnetometer': (MagnetometerWorker, True),
             'th_o2': (ThO2Worker, False), 'arduino': (ArduinoWorker, False), 
-            'caen_hv': (HVWorker, False), 'ups': (UPSWorker, False)
+            'caen_hv': (HVWorker, False), 'ups': (UPSWorker, False),
+            # [v2.1 신규 추가] PDUWorker 매핑 추가 (QObject 기반이므로 False)
+            'netio_pdu': (PDUWorker, False)
         }
         if name not in worker_map:
             if self.config.get(name, {}).get("enabled"): logging.warning(f"Worker for '{name}' is enabled but not defined.")
@@ -848,21 +1291,51 @@ class MainWindow(QMainWindow):
             'magnetometer': { 'avg_data_ready': self.update_mag_ui, 'raw_data_ready': self.update_raw_ui },
             'th_o2': { 'avg_data_ready': self.update_th_o2_ui, 'raw_data_ready': self.update_raw_ui },
             'arduino': { 'avg_data_ready': self.update_arduino_ui, 'raw_data_ready': self.update_raw_ui },
-            'ups': { 'data_ready': self.update_ups_ui }
+            'ups': { 'data_ready': self.update_ups_ui },
+            # [v2.1 신규 추가] PDU 시그널 매핑 추가
+            'netio_pdu': { 
+                'sig_status_updated': self._update_pdu_ui,
+                'sig_connection_changed': self._update_pdu_connection,
+                'sig_log_message': self._update_pdu_log
+            }
         }
+
+        # --- 워커 초기화 로직 (워커 종류별로 분기) ---
         if name == 'caen_hv':
             worker = WClass(self.config.get(name, {}))
             self.hv_control_command.connect(worker.execute_control_command)
             worker.control_command_status.connect(self._update_hv_control_status)
             self.request_hv_setpoints.connect(worker.fetch_setpoints)
             worker.setpoints_ready.connect(self._update_hv_control_setpoints)
+
+        elif name == 'netio_pdu':
+            # [v2.1 신규 추가] PDU 워커 초기화 및 제어/DB 시그널 연결
+            worker = WClass(self.config.get(name, {}))
+            # GUI -> Worker 제어 연결
+            self.pdu_control_single.connect(worker.control_single_port)
+            self.pdu_control_all.connect(worker.control_all_ports)
+            # Worker -> DB Queue 연결 (메인 윈도우의 enqueue_data 슬롯 사용)
+            if hasattr(worker, 'sig_queue_data'):
+                worker.sig_queue_data.connect(self.enqueue_data)
+        
         else:
+            # 기타 센서 워커 초기화 (기존 방식: DB 큐를 인자로 받음)
             worker = WClass(self.config.get(name, {}), self.db_queue)
+
         if hasattr(worker, 'error_occurred'): worker.error_occurred.connect(self.show_error)
         if name in signal_slot_map:
             for signal_name, slot_method in signal_slot_map[name].items():
                 if hasattr(worker, signal_name): getattr(worker, signal_name).connect(slot_method)
+        
         worker.moveToThread(thread)
+
+        # [v2.1 수정] 스레드 생명주기 관리 강화 (QObject 기반 워커 대응)
+        # 워커가 finished 시그널을 가지고 있다면, 스레드 종료와 객체 정리를 연결함
+        if hasattr(worker, 'finished'):
+             worker.finished.connect(thread.quit)
+             worker.finished.connect(worker.deleteLater)
+             thread.finished.connect(thread.deleteLater)
+
         thread.started.connect(worker.run if use_run else worker.start_worker)
         thread.start()
         self.threads[name] = (thread, worker)
@@ -870,6 +1343,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(float, dict)
     def update_daq_ui(self, ts, data):
+        # (v2.0과 동일)
         ptr = self.pointers['daq']; rtd, dist = data.get('rtd', []), data.get('dist', [])
         self.rtd_data[ptr] = [ts, rtd[0] if rtd else np.nan, rtd[1] if len(rtd) > 1 else np.nan]
         self.dist_data[ptr] = [ts, dist[0] if dist else np.nan, dist[1] if len(dist) > 1 else np.nan]
@@ -878,6 +1352,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(float, float, float)
     def update_radon_ui(self, ts, mu, sigma):
+        # (v2.0과 동일)
         # 그래프 데이터 업데이트 로직은 그대로 유지
         ptr = self.pointers['radon']; self.radon_data[ptr] = [ts, mu]
         self.pointers['radon'] = (ptr + 1) % self.max_lens['radon']
@@ -890,18 +1365,21 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(float, list)
     def update_mag_ui(self, ts, mag):
+        # (v2.0과 동일)
         ptr = self.pointers['mag']; self.mag_data[ptr] = [ts] + mag
         self.pointers['mag'] = (ptr + 1) % self.max_lens['mag']
         self.plot_dirty_flags.update({"mag_Bx": True, "mag_By": True, "mag_Bz": True, "mag_|B|": True})
 
     @pyqtSlot(float, float, float, float)
     def update_th_o2_ui(self, ts, temp, humi, o2):
+        # (v2.0과 동일)
         ptr = self.pointers['th_o2']; self.th_o2_data[ptr] = [ts, temp, humi, o2]
         self.pointers['th_o2'] = (ptr + 1) % self.max_lens['th_o2']
         self.plot_dirty_flags.update({"th_o2_temp_humi_Temp(°C)": True, "th_o2_temp_humi_Humi(%)": True, "th_o2_o2_Oxygen(%)": True})
 
     @pyqtSlot(float, dict)
     def update_arduino_ui(self, ts, data):
+        # (v2.0과 동일)
         ptr = self.pointers['arduino']
         self.arduino_data[ptr] = [ts, data.get('temp0', np.nan), data.get('humi0', np.nan), 
                                   data.get('temp1', np.nan), data.get('humi1', np.nan), 
@@ -916,16 +1394,18 @@ class MainWindow(QMainWindow):
         
     @pyqtSlot(dict)
     def update_ups_ui(self, data):
+        # (v2.0과 동일)
         self.latest_ups_status = data
         status = data.get('STATUS', 'N/A'); charge = data.get('BCHARGE', 0.0); timeleft = data.get('TIMELEFT', 0.0); linev = data.get('LINEV', 0.0)
         status_color = "green" if "ONLINE" in status else "orange" if "BATT" in status else "red"
         charge_color = "#2ca02c"; timeleft_color = "#ff7f0e"; linev_color = "#1f77b4"
         
-        # === 변경점: Status 라벨에 줄 바꿈 적용 ===
-        self.labels['UPS_Status'].setText(f"Status:<br><b style='color:{status_color};'>{status}</b>")
-        self.labels['UPS_Charge'].setText(f"Charge: <b style='color:{charge_color};'>{charge:.1f} %</b>")
-        self.labels['UPS_TimeLeft'].setText(f"Time Left: <b style='color:{timeleft_color};'>{timeleft:.1f} min</b>")
-        self.labels['UPS_LineV'].setText(f"Line V: <b style='color:{linev_color};'>{linev:.1f} V</b>")
+        # [v2.1 참고] self.labels는 UIManager에서 설정됨
+        if hasattr(self, 'labels'):
+            self.labels['UPS_Status'].setText(f"Status:<br><b style='color:{status_color};'>{status}</b>")
+            self.labels['UPS_Charge'].setText(f"Charge: <b style='color:{charge_color};'>{charge:.1f} %</b>")
+            self.labels['UPS_TimeLeft'].setText(f"Time Left: <b style='color:{timeleft_color};'>{timeleft:.1f} min</b>")
+            self.labels['UPS_LineV'].setText(f"Line V: <b style='color:{linev_color};'>{linev:.1f} V</b>")
 
         ts = time.time(); ptr = self.pointers['ups']
         self.ups_data[ptr] = [ts, linev, charge, timeleft]
@@ -943,6 +1423,7 @@ class MainWindow(QMainWindow):
     
     @pyqtSlot(dict)
     def update_raw_ui(self, data):
+        # (v2.0과 동일)
         if 'rtd' in data or 'volt' in data:
             rtd, volt = data.get('rtd', []), data.get('volt', [])
             if len(rtd) > 0: self._set_indicator_label("L_LS_Temp", f"L LS Temp: {rtd[0]:.2f} °C")
@@ -969,12 +1450,14 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(dict)
     def _update_hv_ui(self, data):
+        # (v2.0과 동일)
         self.hv_db_push_counter += 1; timestamp = time.strftime('%Y-%m-%d %H:%M:%S'); db_data_to_queue = []
         for slot, slot_data in data.get('slots', {}).items():
             board_temp = slot_data.get('board_temp')
             self.latest_board_temps[slot] = board_temp
             if board_temp is not None and board_temp != -1.0 and slot in self.hv_slot_groupboxes:
-                original_desc = self.config['caen_hv']['crate_map'][str(slot)].get('description', '')
+                # [v2.1 참고] config 접근 안전성 강화
+                original_desc = self.config.get('caen_hv', {}).get('crate_map', {}).get(str(slot), {}).get('description', '')
                 self.hv_slot_groupboxes[slot].setTitle(f"Slot {slot}: {original_desc}  [{board_temp:.1f} °C]")
             for channel, params in slot_data.get('channels', {}).items():
                 key = (slot, channel)
@@ -990,9 +1473,80 @@ class MainWindow(QMainWindow):
         if self.hv_db_push_counter >= 60: self.hv_db_push_counter = 0
         self._update_system_status_indicator()
 
+    # [v2.1 신규 추가] PDU UI 업데이트 슬롯
+    @pyqtSlot(dict)
+    def _update_pdu_ui(self, data):
+        """PDU 상태 데이터를 받아 UI를 갱신합니다."""
+        # UI 요소 존재 확인
+        if not hasattr(self, 'pdu_global_labels') or not hasattr(self, 'pdu_port_widgets'): return
+
+        # Global 상태 업데이트
+        g = data.get('global', {})
+        if 'volt' in g: self.pdu_global_labels['volt'].setText(f"{g.get('volt', 0):.1f} V")
+        if 'freq' in g: self.pdu_global_labels['freq'].setText(f"{g.get('freq', 0):.2f} Hz")
+        if 'power' in g: self.pdu_global_labels['power'].setText(f"{g.get('power', 0)} W")
+
+        # 포트 상태 업데이트
+        outputs = data.get('outputs', {})
+        for port_num, values in outputs.items():
+            if port_num in self.pdu_port_widgets:
+                widgets = self.pdu_port_widgets[port_num]
+                state_bool = values.get('state_bool')
+                
+                self._set_pdu_port_style(widgets['state_lbl'], state_bool)
+                
+                widgets['power'].setText(str(values.get('power', 0)))
+                widgets['current'].setText(str(values.get('current', 0)))
+                widgets['energy'].setText(str(values.get('energy', 0)))
+                
+                # 버튼 상태 업데이트
+                if self.is_pdu_connected:
+                    widgets['btn_on'].setEnabled(not state_bool)
+                    widgets['btn_off'].setEnabled(state_bool)
+        
+        # 일괄 제어 버튼 활성화
+        if self.is_pdu_connected:
+            if hasattr(self, 'btn_pdu_all_on'): self.btn_pdu_all_on.setEnabled(True)
+            if hasattr(self, 'btn_pdu_all_off'): self.btn_pdu_all_off.setEnabled(True)
+
+    # [v2.1 신규 추가] PDU 연결 상태 업데이트 슬롯
+    @pyqtSlot(bool)
+    def _update_pdu_connection(self, connected):
+        self.is_pdu_connected = connected
+        # UI 요소 존재 확인
+        if not hasattr(self, 'pdu_global_labels') or not hasattr(self, 'pdu_port_widgets'): return
+
+        if connected:
+            self.pdu_global_labels['conn'].setText("CONNECTED")
+            self.pdu_global_labels['conn'].setStyleSheet("font-weight: bold; color: green;")
+        else:
+            self.pdu_global_labels['conn'].setText("DISCONNECTED")
+            self.pdu_global_labels['conn'].setStyleSheet("font-weight: bold; color: red;")
+            # 연결 끊김 시 모든 버튼 비활성화 및 상태 N/A로 변경
+            if hasattr(self, 'btn_pdu_all_on'): self.btn_pdu_all_on.setEnabled(False)
+            if hasattr(self, 'btn_pdu_all_off'): self.btn_pdu_all_off.setEnabled(False)
+            for widgets in self.pdu_port_widgets.values():
+                widgets['btn_on'].setEnabled(False)
+                widgets['btn_off'].setEnabled(False)
+                self._set_pdu_port_style(widgets['state_lbl'], None)
+
+    # [v2.1 신규 추가] PDU 로그 메시지 수신 슬롯
+    @pyqtSlot(str, str)
+    def _update_pdu_log(self, level, message):
+        if not hasattr(self, 'pdu_log_text'): return
+
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        color_map = {"INFO": "blue", "SUCCESS": "green", "WARNING": "orange", "ERROR": "red", "CRITICAL": "darkred"}
+        color = color_map.get(level, "black")
+
+        log_entry = f"<span style='color:{color};'>[{timestamp}] [{level}] {message}</span>"
+        self.pdu_log_text.append(log_entry)
+        self.pdu_log_text.verticalScrollBar().setValue(self.pdu_log_text.verticalScrollBar().maximum())
+
     # --- 누락되었던 함수들 (Slots and Helpers) ---
     @pyqtSlot()
     def _update_gui(self):
+        # (v2.0과 동일)
         dirty_keys = [key for key, dirty in self.plot_dirty_flags.items() if dirty]
         if not dirty_keys: return
         for key in dirty_keys:
@@ -1000,7 +1554,8 @@ class MainWindow(QMainWindow):
                 slot = int(key.split('_')[-1])
                 plot_data = self.hv_graph_data.get(slot); curves = self.hv_slot_curves.get(slot)
                 if plot_data is not None and curves is not None:
-                    num_channels = self.config['caen_hv']['crate_map'][str(slot)]['channels']
+                    # [v2.1 참고] config 접근 안전성 강화
+                    num_channels = self.config.get('caen_hv', {}).get('crate_map', {}).get(str(slot), {}).get('channels', 0)
                     for ch in range(num_channels):
                         if ch < len(curves):
                             curves[ch]['v'].setData(x=plot_data[:, 0], y=plot_data[:, 1 + ch * 2], connect='finite')
@@ -1011,11 +1566,13 @@ class MainWindow(QMainWindow):
         self.plot_dirty_flags.clear()
         
     def show_error(self, msg):
+        # (v2.0과 동일)
         if msg is not None:
             logging.error(f"GUI Error: {msg}")
             QTimer.singleShot(0, lambda: QMessageBox.critical(self, "Error", str(msg)))
 
     def _init_tray_icon(self):
+        # (v2.0과 동일)
         self.tray_icon = QSystemTrayIcon(self)
         icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.png")
         if os.path.exists(icon_path): self.tray_icon.setIcon(QIcon(icon_path))
@@ -1026,39 +1583,81 @@ class MainWindow(QMainWindow):
         tray_menu = QMenu(); tray_menu.addAction(show_action); tray_menu.addAction(quit_action)
         self.tray_icon.setContextMenu(tray_menu); self.tray_icon.show()
 
+    # [v2.1 수정] closeEvent (RuntimeError 수정 - sip 사용)
     def closeEvent(self, event):
         logging.info("Application closing sequence initiated...")
         self.status_bar.showMessage("Shutting down all components, please wait...")
         self.setEnabled(False)
-        self.tray_icon.hide()
+        
+        if hasattr(self, 'tray_icon'):
+             self.tray_icon.hide()
+        
         QApplication.processEvents()
+
+        # --- [v2.1 수정] 스레드 종료 안정화 ---
+        
+        # 1. 종료할 스레드 및 워커 목록 안전하게 수집
         threads_to_stop = []
-        if hasattr(self, 'hw_thread') and self.hw_thread.isRunning():
+        
+        # HardwareManager 처리
+        if hasattr(self, 'hw_thread') and self.hw_thread.isRunning() and hasattr(self, 'hw_manager'):
             threads_to_stop.append(("HardwareManager", self.hw_thread, self.hw_manager))
+
+        # 일반 워커 처리
         for name, (thread, worker) in self.threads.items():
             if thread.isRunning():
                 threads_to_stop.append((name, thread, worker))
+
+        # 2. 종료 신호 전송
         for name, thread, worker in threads_to_stop:
+            
+            # [중요] 워커 객체가 이미 삭제되었는지 확인 (sip 모듈 사용)
+            # _start_worker에서 deleteLater로 연결된 객체는 이벤트 루프 처리 중 삭제될 수 있음
+            if sip and sip.isdeleted(worker):
+                logging.warning(f"Worker '{name}' was already deleted when sending stop signal.")
+                if thread.isRunning():
+                    thread.quit() # 객체가 없으므로 스레드 종료 시도
+                continue
+
+            # 객체가 살아있으므로 속성 접근 가능
             stop_method_name = 'stop' if hasattr(worker, 'stop') else 'stop_worker'
+            
             if hasattr(worker, stop_method_name):
                 logging.info(f"Sending stop signal to '{name}' worker...")
+                
+                # DAQ/Magnetometer는 즉시 호출 (v2.0 방식 유지)
                 if name in ['daq', 'magnetometer']:
                     getattr(worker, stop_method_name)()
+                    # 이들은 finished 시그널을 사용하지 않으므로 명시적으로 quit 호출 (v2.0 방식)
+                    if thread.isRunning():
+                         thread.quit() 
                 else:
+                    # QObject 기반 워커(PDU, HV, DB 등)는 스레드 안전하게 호출
+                    # 이들은 stop_worker 완료 후 finished 시그널을 발생시키고, 이 시그널이 thread.quit()을 호출함 (_start_worker에서 연결됨)
                     QMetaObject.invokeMethod(worker, stop_method_name, Qt.QueuedConnection)
+        
+        # 3. 모든 스레드가 종료될 때까지 대기
+        # 이 루프에서는 더 이상 worker 객체에 접근하지 않음 (worker 변수 사용 안함)
         all_threads_stopped = True
-        for name, thread, worker in threads_to_stop:
+        for name, thread, _ in threads_to_stop:
             logging.info(f"Waiting for '{name}' thread to terminate...")
-            thread.quit()
-            if not thread.wait(5000):
-                logging.warning(f"Thread '{name}' did not terminate gracefully within 5 seconds.")
+
+            # thread.wait()은 스레드가 완전히 종료될 때까지 대기함.
+            if not thread.wait(5000): # 최대 5초 대기
+                logging.warning(f"Thread '{name}' did not terminate gracefully within 5 seconds. Forcing termination.")
+                thread.terminate() # 강제 종료
                 all_threads_stopped = False
             else:
                 logging.info(f"Thread '{name}' has stopped successfully.")
+        
         if self.db_pool:
             logging.info("Closing database connection pool...")
-            self.db_pool.close()
-            logging.info("Database connection pool closed.")
+            try:
+                 self.db_pool.close()
+                 logging.info("Database connection pool closed.")
+            except Exception as e:
+                 logging.error(f"Error closing DB pool: {e}")
+
         if all_threads_stopped:
             logging.info("All components shut down successfully.")
         else:
@@ -1071,16 +1670,20 @@ if __name__ == '__main__':
     load_config()
     log_level = CONFIG.get('logging_level', 'INFO').upper()
     log_filename = "rene_pm.log"
+    # [v2.1 참고] 로그 파일 모드를 'a'(append)로 변경하는 것이 일반적이나, v2.0 코드의 'w'(write) 유지
     file_handler = logging.FileHandler(log_filename, 'w'); stream_handler = logging.StreamHandler()
     logging.basicConfig(level=getattr(logging, log_level, logging.INFO),
                         format='%(asctime)s - %(levelname)s - [%(threadName)s] - %(message)s',
                         handlers=[file_handler, stream_handler])
-    logging.info("="*50 + "\nRENE-PM Integrated Monitoring System Starting\n" + "="*50)
+    
+    # [v2.1 수정] 시작 로그 버전 변경
+    logging.info("="*50 + "\nRENE-PM v2.1 Integrated Monitoring System Starting\n" + "="*50)
     
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     signal.signal(signal.SIGINT, lambda s, f: QApplication.quit())
     
+    # 이벤트 루프가 원활하게 동작하도록 하는 타이머 (v2.0 코드 유지)
     timer = QTimer(app); timer.start(500); timer.timeout.connect(lambda: None)
     
     main_win = MainWindow(config=CONFIG)

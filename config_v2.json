@@ -8,7 +8,7 @@
     "database": {
         "enabled": true,
         "user": "RENE_PM_ADMIN",
-        "password": "",
+        "password": "rene!Q@W#E$R",
         "database": "RENE_PM",
         "unix_socket": "/home/mariadb_data/mysql/mysql.sock",
         "pool_name": "rene_pm_pool",
@@ -119,5 +119,22 @@
     "ups": {
         "enabled": true,
         "interval_s": 5
+    },
+    "netio_pdu": {
+        "enabled": true,
+        "ip_address": "192.168.0.2",
+        "port": 502,
+        "timeout_sec": 3,
+        "polling_interval_sec": 5,
+        "port_map": {
+            "1": "DAQ System",
+            "2": "HV Mainframe",
+            "3": "Cooling Fan 1",
+            "4": "Cooling Fan 2",
+            "5": "Network Switch",
+            "6": "Spare 1",
+            "7": "Spare 2",
+            "8": "Emergency Light"
+        }
     }
 }
