@@ -136,5 +136,24 @@
             "7": "Spare 2",
             "8": "Emergency Light"
         }
+    },
+    "fire_detector": {
+        "enabled": true,
+        "port": "/dev/ttyUSB2",
+        "baudrate": 19200,
+        "slave_id": 1,
+        "interval_s": 1.0,
+        "model": "FS24X_Plus",
+        "status_register": 40001,
+        "comments": "Appendix 6 of manual. Usually 40001 or 40007 for status."
+    },
+    "voc_detector": {
+        "enabled": true,
+        "port": "/dev/ttyUSB3",
+        "baudrate": 9600,
+        "slave_id": 2,
+        "interval_s": 2.0,
+        "model": "RAEGuard2_PID",
+        "scale_factor": 1000.0
     }
 }
