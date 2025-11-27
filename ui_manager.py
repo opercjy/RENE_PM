@@ -33,7 +33,9 @@ class UIManager:
             "Arduino": ["Temp1", "Humi1", "Temp2", "Humi2", "Dist"],
             "Radon": ["Radon_Value"],
             "UPS": ["UPS_Status", "UPS_Charge", "UPS_TimeLeft", "UPS_LineV"],
-            "System Status": ["HV_Shutdown_Status"]
+            "System Status": ["HV_Shutdown_Status"],
+            "Flame Detector": ["Fire_Status"],
+            "VOC Detector": ["VOC_Conc", "VOC_Alarm"]
         }
         
         for title, labels in env_groups.items():
