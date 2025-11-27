@@ -29,7 +29,8 @@ import subprocess
 
 # [v2.1 수정] PDUWorker 임포트 추가
 from workers import (DatabaseWorker, DaqWorker, RadonWorker, MagnetometerWorker,
-                     ThO2Worker, ArduinoWorker, HVWorker, AnalysisWorker, UPSWorker, PDUWorker)
+                     ThO2Worker, ArduinoWorker, HVWorker, AnalysisWorker, UPSWorker, PDUWorker,
+                     FireWorker, PidWorker) 
 from workers.hardware_manager import HardwareManager
 from ui_manager import UIManager, PlotManager
 
@@ -1257,7 +1258,9 @@ class MainWindow(QMainWindow):
             'ups': ([], ["UPS_Status", "UPS_Charge", "UPS_TimeLeft", "UPS_LineV", "HV_Shutdown_Status"]), 
             'caen_hv': ([], []),
             # [v2.1 신규 추가] PDU 활성화 등록
-            'netio_pdu': ([], [])
+            'netio_pdu': ([], []),
+            'fire_detector': ([], ["Fire_Status"]),
+            'voc_detector': ([], ["VOC_Conc", "VOC_Alarm"])
         }
         if name in ui_map:
             # [v2.1 참고] self.labels는 UIManager에서 설정됨
@@ -1285,7 +1288,9 @@ class MainWindow(QMainWindow):
             'th_o2': (ThO2Worker, False), 'arduino': (ArduinoWorker, False), 
             'caen_hv': (HVWorker, False), 'ups': (UPSWorker, False),
             # [v2.1 신규 추가] PDUWorker 매핑 추가 (QObject 기반이므로 False)
-            'netio_pdu': (PDUWorker, False)
+            'netio_pdu': (PDUWorker, False),
+            'fire_detector': (FireWorker, False),
+            'voc_detector': (PidWorker, False)
         }
         if name not in worker_map:
             if self.config.get(name, {}).get("enabled"): logging.warning(f"Worker for '{name}' is enabled but not defined.")
@@ -1304,7 +1309,9 @@ class MainWindow(QMainWindow):
                 'sig_status_updated': self._update_pdu_ui,
                 'sig_connection_changed': self._update_pdu_connection,
                 'sig_log_message': self._update_pdu_log
-            }
+            },
+            'fire_detector': { 'data_ready': self.update_fire_ui, 'status_update': self._update_fire_status_indicator },
+            'voc_detector': { 'data_ready': self.update_pid_ui }
         }
 
         # --- 워커 초기화 로직 (워커 종류별로 분기) ---
@@ -1480,6 +1487,7 @@ class MainWindow(QMainWindow):
         if self.hv_db_push_counter >= 60: self.hv_db_push_counter = 0
         self._update_system_status_indicator()
 
+   
     # [v2.1 신규 추가] PDU UI 업데이트 슬롯
     @pyqtSlot(dict)
     def _update_pdu_ui(self, data):
@@ -1550,6 +1558,32 @@ class MainWindow(QMainWindow):
         self.pdu_log_text.append(log_entry)
         self.pdu_log_text.verticalScrollBar().setValue(self.pdu_log_text.verticalScrollBar().maximum())
 
+    @pyqtSlot(dict)
+    def update_fire_ui(self, data):
+        # 그래프 데이터 처리 로직이 필요하다면 여기에 추가 (현재는 상태 표시만)
+        pass
+
+    @pyqtSlot(str, bool)
+    def _update_fire_status_indicator(self, status_msg, is_fire):
+        # UI 라벨 업데이트
+        color = "red" if is_fire else "green" if status_msg == "NORMAL" else "orange"
+        if hasattr(self, 'labels') and 'Fire_Status' in self.labels:
+            self.labels['Fire_Status'].setText(f"Fire Status: <b style='color:{color};'>{status_msg}</b>")
+
+    @pyqtSlot(dict)
+        def update_pid_ui(self, data):
+        voc = data.get('voc_detector', {})
+        conc = voc.get('conc', 0.0)
+        alarm = voc.get('alarm', 0)
+
+        if hasattr(self, 'labels'):
+            if 'VOC_Conc' in self.labels:
+                self.labels['VOC_Conc'].setText(f"VOC: {conc:.3f} ppm")
+            if 'VOC_Alarm' in self.labels:
+                state = "ALARM" if alarm > 0 else "OK"
+                color = "red" if alarm > 0 else "green"
+                self.labels['VOC_Alarm'].setText(f"Alarm: <b style='color:{color};'>{state}</b>")
+    
     # --- 누락되었던 함수들 (Slots and Helpers) ---
     @pyqtSlot()
     def _update_gui(self):
