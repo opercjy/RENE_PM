@@ -36,7 +36,7 @@ RENE-PM은 물리 실험 환경의 다양한 장비를 통합 모니터링하고
 *   **시계열 그래프:** PyQtGraph을 이용한 고성능 실시간 데이터 플로팅.
 *   **데이터 분석 도구 (Analysis Tab):** 과거 데이터 조회, 시계열 분석, 상관관계 분석(Correlation Analysis) 및 CSV 데이터 내보내기 기능 제공.
 
-## 3. 🏗️ 시스템 아키텍처 (System Architecture)
+## 3. 시스템 아키텍처 (System Architecture)
 
 RENE-PM은 안정적인 데이터 수집과 반응형 UI를 보장하기 위해 **생산자-소비자(Producer-Consumer) 패턴**과 **Worker Thread 기반 비동기 아키텍처**를 사용합니다.
 
@@ -95,7 +95,7 @@ graph TD
   * **Hardware Communication:** `pymodbus` (v3.0+), `nidaqmx`, `pyvisa`, `pyserial`
   * **Data Processing:** `pandas`, `numpy`
 
-## 4\. ⚙️ 설치 및 설정 (Installation & Configuration)
+## 4\. 설치 및 설정 (Installation & Configuration)
 
 ### 4.1. Prerequisites
 
