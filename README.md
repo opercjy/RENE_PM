@@ -108,7 +108,7 @@ graph TD
 1.  리포지토리를 클론합니다:
 
     ```bash
-    git clone <repository-url>
+    git clone https://github.com/opercjy/RENE_PM.git
     cd RENE_PM
     ```
 
