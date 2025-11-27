@@ -10,3 +10,5 @@ from .hv_worker import HVWorker
 from .analysis_worker import AnalysisWorker
 from .ups_worker import UPSWorker
 from .pdu_worker import PDUWorker
+from .fire_worker import FireWorker
+from .pid_worker import PidWorker
