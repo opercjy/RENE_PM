@@ -21,9 +21,9 @@ class DatabaseWorker(QObject):
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         'UPS': "INSERT IGNORE INTO UPS_DATA (`datetime`, `status`, `linev`, `bcharge`, `timeleft`) VALUES (?, ?, ?, ?, ?)",
-        
-        # [v2.1 신규 추가] PDU 데이터 INSERT 쿼리
-        'PDU': "INSERT INTO PDU_DATA (datetime, port_idx, state, power_w, current_ma, energy_wh) VALUES (?, ?, ?, ?, ?, ?)"
+        'PDU': "INSERT INTO PDU_DATA (datetime, port_idx, state, power_w, current_ma, energy_wh) VALUES (?, ?, ?, ?, ?, ?)",
+        'FIRE': "INSERT IGNORE INTO FIRE_DATA (`datetime`, `status_code`, `is_fire`, `is_fault`) VALUES (?, ?, ?, ?)",
+        'VOC': "INSERT IGNORE INTO VOC_DATA (`datetime`, `concentration`, `alarm_status`, `unit`) VALUES (?, ?, ?, ?)"
     }
     TABLE_SCHEMAS = [
         """CREATE TABLE IF NOT EXISTS LS_DATA (
@@ -67,7 +67,13 @@ class DatabaseWorker(QObject):
             energy_wh FLOAT
         );""", 
         "CREATE INDEX IF NOT EXISTS idx_pdu_time ON PDU_DATA (datetime);",
-        "CREATE INDEX IF NOT EXISTS idx_pdu_port ON PDU_DATA (port_idx);"
+        "CREATE INDEX IF NOT EXISTS idx_pdu_port ON PDU_DATA (port_idx);",
+        """CREATE TABLE IF NOT EXISTS FIRE_DATA (
+            `datetime` DATETIME NOT NULL PRIMARY KEY, `status_code` INT, `is_fire` BOOLEAN, `is_fault` BOOLEAN);""",
+            "CREATE INDEX IF NOT EXISTS idx_fire_datetime ON FIRE_DATA (datetime);",
+        """CREATE TABLE IF NOT EXISTS VOC_DATA (
+            `datetime` DATETIME NOT NULL PRIMARY KEY, `concentration` FLOAT, `alarm_status` INT, `unit` VARCHAR(10));""",
+            "CREATE INDEX IF NOT EXISTS idx_voc_datetime ON VOC_DATA (datetime);"
     ]
 
     def __init__(self, db_pool, db_config, data_queue: queue.Queue):
