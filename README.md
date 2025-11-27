@@ -1,5 +1,4 @@
 
-```markdown
 # RENE-PM (Project Integrated Monitoring System)
 
 RENE-PM은 물리 실험 환경의 다양한 장비를 통합 모니터링하고 제어하기 위해 개발된 PyQt5 기반의 데스크톱 애플리케이션입니다. 환경 센서 데이터부터 고전압 장비, 전력 분배 시스템까지 다양한 하드웨어의 상태를 실시간으로 수집, 시각화하고 데이터베이스에 안정적으로 기록합니다.
@@ -40,7 +39,7 @@ RENE-PM은 물리 실험 환경의 다양한 장비를 통합 모니터링하고
 ## 3. 🏗️ 시스템 아키텍처 (System Architecture)
 
 RENE-PM은 안정적인 데이터 수집과 반응형 UI를 보장하기 위해 **생산자-소비자(Producer-Consumer) 패턴**과 **Worker Thread 기반 비동기 아키텍처**를 사용합니다.
-````
+
 ```mermaid
 graph TD
     subgraph Hardware Layer
