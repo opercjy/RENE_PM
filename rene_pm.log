@@ -1,37 +1,64 @@
-2025-11-27 00:15:18,067 - INFO - [MainThread] - ==================================================
-RENE-PM v2.1 Integrated Monitoring System Starting
+2025-11-30 22:01:15,428 - INFO - [MainThread] - ==================================================
+RENE-PM v2.1.9 Integrated Monitoring System Starting
 ==================================================
-2025-11-27 00:15:18,394 - INFO - [MainThread] - Starting delayed initialization...
-2025-11-27 00:15:18,397 - INFO - [MainThread] - Database connection pool created.
-2025-11-27 00:15:18,398 - INFO - [MainThread] - Worker for 'caen_hv' started.
-2025-11-27 00:15:18,398 - INFO - [Dummy-1] - Connecting to CAEN HV at 192.168.0.39...
-2025-11-27 00:15:18,398 - INFO - [MainThread] - Worker for 'netio_pdu' started.
-2025-11-27 00:15:18,399 - INFO - [Dummy-2] - Database tables and indexes are ready (including PDU_DATA).
-2025-11-27 00:15:18,399 - INFO - [Dummy-2] - Database worker started, using shared connection pool.
-2025-11-27 00:15:18,400 - INFO - [Dummy-3] - HardwareManager scan started in a new thread.
-2025-11-27 00:15:18,400 - INFO - [MainThread] - Initialization complete. System is ready.
-2025-11-27 00:15:18,499 - INFO - [Dummy-1] - Successfully connected to CAEN HV system.
-2025-11-27 00:15:18,499 - INFO - [MainThread] - HV Connection Status Changed: Connected
-2025-11-27 00:15:20,987 - INFO - [MainThread] - Worker for 'radon' started.
-2025-11-27 00:15:20,988 - INFO - [MainThread] - Worker for 'daq' started.
-2025-11-27 00:15:20,989 - INFO - [MainThread] - Worker for 'th_o2' started.
-2025-11-27 00:15:20,990 - INFO - [MainThread] - Worker for 'magnetometer' started.
-2025-11-27 00:15:20,990 - INFO - [Dummy-6] - [Magnetometer] Attempting to connect...
-2025-11-27 00:15:20,992 - INFO - [MainThread] - Worker for 'ups' started.
-2025-11-27 00:15:20,992 - INFO - [Dummy-7] - TH/O2 worker started with 2000ms interval.
-2025-11-27 00:15:20,997 - INFO - [MainThread] - Worker for 'arduino' started.
-2025-11-27 00:15:20,998 - INFO - [Dummy-8] - Arduino worker started with 2000ms interval.
-2025-11-27 00:15:21,028 - INFO - [Dummy-9] - UPS worker started with 5s interval.
-2025-11-27 00:15:21,036 - INFO - [Dummy-10] - Activated module LS_Temperature (SN: 015362E3) as cDAQ1Mod1
-2025-11-27 00:15:21,037 - INFO - [Dummy-10] - Activated module LS_Level (SN: 21A3509) as cDAQ1Mod2
-2025-11-27 00:15:23,014 - INFO - [Dummy-6] - [Magnetometer] Successfully connected to device. ID: Metrolab Technology SA,TFM1186,0003055,elA3-prA1-fw3.1
-2025-11-27 00:16:18,852 - INFO - [Dummy-2] - Successfully inserted batch of 194 records.
-2025-11-27 00:17:18,828 - INFO - [Dummy-2] - Successfully inserted batch of 199 records.
-2025-11-27 00:18:18,816 - INFO - [Dummy-2] - Successfully inserted batch of 103 records.
-2025-11-27 00:19:18,841 - INFO - [Dummy-2] - Successfully inserted batch of 294 records.
-2025-11-27 00:20:18,820 - INFO - [Dummy-2] - Successfully inserted batch of 199 records.
-2025-11-27 00:21:18,816 - INFO - [Dummy-2] - Successfully inserted batch of 199 records.
-2025-11-27 00:22:18,817 - INFO - [Dummy-2] - Successfully inserted batch of 199 records.
-2025-11-27 00:23:18,820 - INFO - [Dummy-2] - Successfully inserted batch of 102 records.
-2025-11-27 00:24:18,813 - INFO - [Dummy-2] - Successfully inserted batch of 295 records.
-2025-11-27 00:25:18,823 - INFO - [Dummy-2] - Successfully inserted batch of 199 records.
+2025-11-30 22:01:15,894 - INFO - [MainThread] - Starting delayed initialization...
+2025-11-30 22:01:15,897 - INFO - [MainThread] - Database connection pool created.
+2025-11-30 22:01:15,897 - INFO - [MainThread] - Worker for 'caen_hv' started.
+2025-11-30 22:01:15,897 - INFO - [Dummy-1] - Connecting to CAEN HV at 192.168.0.39...
+2025-11-30 22:01:15,898 - INFO - [MainThread] - Worker for 'netio_pdu' started.
+2025-11-30 22:01:15,899 - INFO - [MainThread] - Worker for 'fire_detector' started.
+2025-11-30 22:01:15,899 - ERROR - [Dummy-2] - [Errno 2] could not open port /dev/ttyUSB2: [Errno 2] 그런 파일이나 디렉터리가 없습니다: '/dev/ttyUSB2'
+2025-11-30 22:01:15,900 - INFO - [MainThread] - Worker for 'voc_detector' started.
+2025-11-30 22:01:15,900 - ERROR - [Dummy-3] - [Errno 2] could not open port /dev/ttyUSB3: [Errno 2] 그런 파일이나 디렉터리가 없습니다: '/dev/ttyUSB3'
+2025-11-30 22:01:15,900 - INFO - [Dummy-4] - Database tables and indexes are ready (including PDU_DATA).
+2025-11-30 22:01:15,907 - INFO - [Dummy-5] - HardwareManager scan started in a new thread.
+2025-11-30 22:01:15,908 - INFO - [MainThread] - Initialization complete. System is ready.
+2025-11-30 22:01:15,908 - INFO - [Dummy-4] - Database worker started, using shared connection pool.
+2025-11-30 22:01:15,976 - ERROR - [MainThread] - GUI Error: Fire Detector Error: Failed to connect to /dev/ttyUSB2
+2025-11-30 22:01:15,977 - ERROR - [MainThread] - GUI Error: PID Detector Error: Failed to connect to /dev/ttyUSB3
+2025-11-30 22:01:16,000 - INFO - [Dummy-1] - Successfully connected to CAEN HV system.
+2025-11-30 22:01:16,002 - INFO - [MainThread] - HV Connection Status Changed: Connected
+2025-11-30 22:01:18,463 - INFO - [MainThread] - Worker for 'ups' started.
+2025-11-30 22:01:18,467 - INFO - [MainThread] - Worker for 'th_o2' started.
+2025-11-30 22:01:18,467 - INFO - [MainThread] - Worker for 'daq' started.
+2025-11-30 22:01:18,468 - INFO - [MainThread] - Worker for 'arduino' started.
+2025-11-30 22:01:18,469 - INFO - [MainThread] - Worker for 'magnetometer' started.
+2025-11-30 22:01:18,469 - INFO - [Dummy-8] - [Magnetometer] Attempting to connect...
+2025-11-30 22:01:18,469 - INFO - [Dummy-9] - Arduino worker started with 2000ms interval.
+2025-11-30 22:01:18,469 - INFO - [Dummy-10] - TH/O2 worker started with 2000ms interval.
+2025-11-30 22:01:18,470 - INFO - [MainThread] - Worker for 'radon' started.
+2025-11-30 22:01:18,500 - INFO - [Dummy-11] - UPS worker started with 5s interval.
+2025-11-30 22:01:18,525 - INFO - [Dummy-12] - Activated module LS_Temperature (SN: 015362E3) as cDAQ1Mod1
+2025-11-30 22:01:18,525 - INFO - [Dummy-12] - Activated module LS_Level (SN: 21A3509) as cDAQ1Mod2
+2025-11-30 22:01:20,487 - INFO - [Dummy-8] - [Magnetometer] Successfully connected to device. ID: Metrolab Technology SA,TFM1186,0003055,elA3-prA1-fw3.1
+2025-11-30 22:02:15,842 - INFO - [Dummy-4] - Successfully inserted batch of 194 records.
+2025-11-30 22:03:15,816 - INFO - [Dummy-4] - Successfully inserted batch of 199 records.
+2025-11-30 22:03:40,285 - INFO - [MainThread] - Application closing sequence initiated...
+2025-11-30 22:03:42,560 - INFO - [MainThread] - Waiting for 'HardwareManager' thread to terminate...
+2025-11-30 22:03:42,560 - INFO - [MainThread] - Thread 'HardwareManager' has stopped successfully.
+2025-11-30 22:03:42,560 - INFO - [MainThread] - Waiting for 'db' thread to terminate...
+2025-11-30 22:03:42,560 - INFO - [MainThread] - Thread 'db' has stopped successfully.
+2025-11-30 22:03:42,560 - INFO - [MainThread] - Waiting for 'caen_hv' thread to terminate...
+2025-11-30 22:03:42,560 - INFO - [MainThread] - Thread 'caen_hv' has stopped successfully.
+2025-11-30 22:03:42,560 - INFO - [MainThread] - Waiting for 'netio_pdu' thread to terminate...
+2025-11-30 22:03:42,560 - INFO - [MainThread] - Thread 'netio_pdu' has stopped successfully.
+2025-11-30 22:03:42,560 - INFO - [MainThread] - Waiting for 'fire_detector' thread to terminate...
+2025-11-30 22:03:42,560 - INFO - [MainThread] - Thread 'fire_detector' has stopped successfully.
+2025-11-30 22:03:42,560 - INFO - [MainThread] - Waiting for 'voc_detector' thread to terminate...
+2025-11-30 22:03:42,561 - INFO - [MainThread] - Thread 'voc_detector' has stopped successfully.
+2025-11-30 22:03:42,561 - INFO - [MainThread] - Waiting for 'ups' thread to terminate...
+2025-11-30 22:03:42,561 - INFO - [MainThread] - Thread 'ups' has stopped successfully.
+2025-11-30 22:03:42,561 - INFO - [MainThread] - Waiting for 'th_o2' thread to terminate...
+2025-11-30 22:03:42,561 - INFO - [MainThread] - Thread 'th_o2' has stopped successfully.
+2025-11-30 22:03:42,561 - INFO - [MainThread] - Waiting for 'daq' thread to terminate...
+2025-11-30 22:03:47,561 - WARNING - [MainThread] - Thread 'daq' did not terminate gracefully within 5 seconds. Forcing termination.
+2025-11-30 22:03:47,561 - INFO - [MainThread] - Waiting for 'arduino' thread to terminate...
+2025-11-30 22:03:47,561 - INFO - [MainThread] - Thread 'arduino' has stopped successfully.
+2025-11-30 22:03:47,561 - INFO - [MainThread] - Waiting for 'magnetometer' thread to terminate...
+2025-11-30 22:03:52,561 - WARNING - [MainThread] - Thread 'magnetometer' did not terminate gracefully within 5 seconds. Forcing termination.
+2025-11-30 22:03:52,562 - INFO - [MainThread] - Waiting for 'radon' thread to terminate...
+2025-11-30 22:03:52,562 - INFO - [MainThread] - Thread 'radon' has stopped successfully.
+2025-11-30 22:03:52,562 - INFO - [MainThread] - Closing database connection pool...
+2025-11-30 22:03:52,562 - INFO - [MainThread] - Database connection pool closed.
+2025-11-30 22:03:52,562 - WARNING - [MainThread] - Some components may not have shut down cleanly.
+2025-11-30 22:03:52,562 - INFO - [MainThread] - Terminating application event loop and exiting.

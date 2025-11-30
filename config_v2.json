@@ -144,8 +144,12 @@
         "slave_id": 1,
         "interval_s": 1.0,
         "model": "FS24X_Plus",
-        "status_register": 40001,
-        "comments": "Appendix 6 of manual. Usually 40001 or 40007 for status."
+        "registers": {
+            "alarm_level": 40003,
+            "fault_code": 40005,
+            "monitor_state": 40007
+        },
+        "comments": "Registers: alarm_level(Float32, 0=Normal, 1=Alarm1, 2=Alarm2), fault_code(Uint16), monitor_state(Uint8)"
     },
     "voc_detector": {
         "enabled": true,
@@ -154,6 +158,11 @@
         "slave_id": 2,
         "interval_s": 2.0,
         "model": "RAEGuard2_PID",
-        "scale_factor": 1000.0
+        "scale_factor": 1000.0,
+        "thresholds": {
+            "warning_ppm": 50.0,
+            "critical_ppm": 100.0
+        },
+        "comments": "Based on RAEGuard 2 PID Manual (0.1-1000ppm range). Low=50, High=100."
     }
 }
