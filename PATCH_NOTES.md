@@ -1,48 +1,38 @@
 # RENE-PM Patch Notes (Changelog)
 
-## [v2.1.0] - 2025-11-27
+## [v2.1.9] - 2025-11-30 (Latest)
+### UI/UX 개선 및 최적화
+* **하단 대시보드 레이아웃 재구성:**
+    * 센서 그룹을 10개로 세분화 (Flame, VOC 독립 분리).
+    * `UPS`와 `HV System` 그룹 분리. `HV Power` 상태는 UPS 그룹으로 이동하고, HV 그룹은 보드 온도(`Board Temps`)만 표시하도록 변경.
+* **상태 표시 시인성 강화:**
+    * HV 보드 온도에 색상 로직 적용 (🟢정상 < 50°C, 🟠주의 < 65°C, 🔴위험).
+    * 자기장(Magnetometer) 성분별(Bx, By, Bz, |B|) 텍스트 색상을 그래프 선 색상과 일치시킴.
+* **SOP 가이드 초기화:** 프로그램 시작 시 'Initializing...' 대신 기본 **[NORMAL]** 단계 가이드를 즉시 표시.
 
-### 개요
-v2.1은 NETIO PowerPDU 8KF 통합을 통한 원격 전원 제어 기능 추가와 시스템 안정성 향상에 중점을 두었습니다.
+## [v2.1.5 ~ v2.1.8] - UI 스타일링 및 안전성 강화
+* **가독성 향상:** 애플리케이션 전체 기본 폰트 크기를 **12pt**로 상향 조정.
+* **탭 바 최적화 (Compact Tabs):** 탭 너비와 여백을 줄여 스크롤 없이 모든 탭이 한 화면에 들어오도록 개선.
+* **설정 유연화:** VOC 감지기의 경고/위험 임계값(`thresholds`)을 `config_v2.json`에서 설정할 수 있도록 변경.
+* **SOP HTML 강화:** 안전 탭의 SOP 가이드에 **비상 연락망(Contact Info)** 섹션을 추가하고, 상황별(Normal/Warning/Emergency) 스타일을 동적으로 적용.
 
-### 신규 기능 (Added)
+## [v2.1.0 ~ v2.1.4] - 하드웨어 통합 및 기능 확장
+### 신규 기능 (New Features)
+* **고급 안전 탭 (Advanced Safety Tab):**
+    * 화재(FS24X Plus) 및 유해가스(RAEGuard2 PID) 감지기 통합 모니터링.
+    * 실시간 위험도에 따른 **신호등(Traffic Light) UI** 및 동적 SOP 가이드 제공.
+    * VOC 농도 및 화재 센서 아날로그 레벨에 대한 실시간 트렌드 그래프 추가.
+* **NETIO PowerPDU 8KF 통합:**
+    * Modbus TCP를 이용한 PDU 원격 제어(개별/일괄 ON/OFF) 탭 신설.
+    * 포트별 전력(W), 전류(mA), 에너지(Wh) 실시간 모니터링 및 DB 로깅.
 
-*   **NETIO PowerPDU 8KF 통합:**
-    *   Modbus TCP 프로토콜을 사용하여 PDU와의 통신을 구현했습니다 (`workers/pdu_worker.py`).
-    *   PDU 상태(전압, 주파수, 총 전력) 및 8개 포트의 개별 상태(ON/OFF, 전력, 전류, 에너지)를 모니터링합니다.
-*   **PDU 제어 UI:**
-    *   GUI에 "⚡ Power Control (PDU)" 탭을 신설했습니다.
-    *   원격 제어(개별/일괄 ON/OFF) 기능을 제공합니다. 일괄 제어 시 안전 확인 대화상자가 표시됩니다.
-*   **데이터베이스 확장:**
-    *   PDU 데이터를 기록하기 위한 `PDU_DATA` 테이블 스키마를 추가했습니다 (`workers/database_worker.py`).
-*   **PDU 데이터 분석 기능:**
-    *   Analysis 탭에 PDU 데이터(Power, Current, Energy) 시계열 조회 기능을 추가했습니다 (`rene_pm_main.py`).
-    *   조회할 포트를 선택할 수 있는 UI를 구현하고, 결과 시각화 및 CSV 내보내기를 지원합니다.
+### 버그 수정 (Bug Fixes)
+* **종료 안정성 확보:** 애플리케이션 종료 시 `sip.isdeleted()` 체크를 통해 스레드 충돌(`RuntimeError`) 방지.
+* **Modbus 호환성:** `pymodbus` v3.x 호환성을 위해 파라미터 명칭 수정 (`unit` -> `slave`).
+* **설정 파일 오류 해결:** JSON 표준을 준수하기 위해 주석(`#`) 제거 및 `comments` 필드로 대체.
+* **초기화 순서 수정:** GUI 로딩 후 워커가 시작되도록 `delayed_init` 도입하여 초기 로그 누락 방지.
 
-### 개선 사항 (Changed)
+---
 
-*   **DatabaseWorker 로직 개선:**
-    *   `process_batch` 함수가 단일 레코드(Tuple) 뿐만 아니라 배치 레코드(List[Tuple], 예: PDU 데이터)도 효율적으로 처리할 수 있도록 로직을 일반화했습니다.
-*   **PDU 일괄 제어 딜레이 조정:**
-    *   일괄 제어 시 장비 부하를 줄이기 위해 포트 간 딜레이를 0.15초로 조정했습니다.
-
-### 버그 수정 (Fixed)
-
-*   **애플리케이션 종료 안정성 확보:**
-    *   애플리케이션 종료 시 스레드 정리 과정에서 발생하던 충돌 문제(`RuntimeError: wrapped C/C++ object... has been deleted`)를 해결했습니다 (`rene_pm_main.py`). `sip.isdeleted()`를 사용하여 QObject 생명주기를 안전하게 확인합니다.
-*   **PDU 통신 호환성 문제 해결:**
-    *   `pymodbus` 라이브러리 3.0 이상 버전과의 호환성을 위해 Modbus 통신 파라미터를 `unit`에서 `slave`로 변경했습니다 (`TypeError: unexpected keyword argument 'unit'` 오류 해결).
-*   **PDU 통신 안정성 개선:**
-    *   `ConnectionException`([Errno 104])에 대한 예외 처리를 강화하고 Modbus Slave ID를 명시적으로 사용하여 통신 안정성을 높였습니다.
-
-## [v2.0.0] - (이전 릴리즈 날짜)
-
-### 개요
-RENE-PM 초기 배포 버전. PyQt5 기반의 통합 모니터링 시스템 아키텍처 구축.
-
-### 주요 기능
-*   환경 센서 모니터링 (NI-cDAQ, Radon, Magnetometer, TH/O2, Arduino).
-*   CAEN HV 시스템 제어 및 모니터링.
-*   UPS 상태 감시 및 비상 시 HV 자동 셧다운 기능.
-*   실시간 데이터 시각화 및 MariaDB 로깅.
-*   과거 데이터 분석 및 상관관계 분석 기능.
+## [v2.0.0] - Initial Release
+* 초기 PyQt5 아키텍처 및 기본 환경 센서(cDAQ, Arduino 등) 모니터링 구축.
