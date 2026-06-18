@@ -49,13 +49,12 @@ class SafetyPanel(QWidget):
         self.voc_plot = pg.PlotWidget(title="🧪 VOC Concentration (ppm)")
         self.voc_plot.setBackground('w')
         self.voc_plot.showGrid(x=True, y=True, alpha=0.3)
-        # [핵심] symbol='o' 추가로 단일 데이터 점 생성 시 즉각 시각화 보장
-        self.curve_voc = self.voc_plot.plot(pen=pg.mkPen('b', width=2), symbol='o', symbolSize=3, symbolBrush='b', name="VOC")
+        self.curve_voc = self.voc_plot.plot(pen=pg.mkPen('b', width=2), name="VOC")
         
         self.flame_plot = pg.PlotWidget(title="🔥 Flame Sensor Level")
         self.flame_plot.setBackground('w')
         self.flame_plot.showGrid(x=True, y=True, alpha=0.3)
-        self.curve_flame = self.flame_plot.plot(pen=pg.mkPen('r', width=2), symbol='o', symbolSize=3, symbolBrush='r', name="Flame Level")
+        self.curve_flame = self.flame_plot.plot(pen=pg.mkPen('r', width=2), name="Flame Level")
         
         graph_layout.addWidget(self.voc_plot)
         graph_layout.addWidget(self.flame_plot)
@@ -85,7 +84,6 @@ class SafetyPanel(QWidget):
 
     @pyqtSlot()
     def _on_ui_update_requested(self):
-        """StateStore 데이터를 읽어와 PyqtGraph 곡선을 그립니다."""
         flags = self.state_store.plot_dirty_flags
         
         if flags.get("voc_trend_VOC"):
