@@ -1,14 +1,17 @@
-# workers/hardware_manager.py 파일을 아래 코드로 전체 교체합니다.
+# workers/hardware_manager.py
 
 import logging
 import serial
 import nidaqmx
 import pyvisa
 import re
-import subprocess # subprocess 모듈 추가
-from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer
+import subprocess
+from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer
 
 class HardwareManager(QObject):
+    """
+    [장치 핫플러그/오프라인 감시 데몬]
+    """
     device_connected = pyqtSignal(str)
     device_disconnected = pyqtSignal(str)
 
@@ -41,14 +44,15 @@ class HardwareManager(QObject):
 
     def _detect_offline_devices(self):
         newly_detected = set()
-        # === 변경점 1: 스캔할 장치 목록에 'ups' 추가 ===
         device_names = ['daq', 'radon', 'th_o2', 'arduino', 'magnetometer', 'ups']
         for name in device_names:
             if name not in self.online and self.config.get(name, {}).get('enabled'):
                 if name == 'daq' and nidaqmx:
                     try:
-                        if nidaqmx.system.System.local().devices: newly_detected.add('daq')
-                    except: pass
+                        if nidaqmx.system.System.local().devices: 
+                            newly_detected.add('daq')
+                    except Exception: 
+                        pass
 
                 elif name == 'magnetometer' and self.pyvisa_rm:
                     try:
@@ -70,15 +74,13 @@ class HardwareManager(QObject):
                     except Exception as e:
                         logging.warning(f"An exception occurred during magnetometer scan: {e}")
                 
-                # === 변경점 2: UPS 감지 로직 추가 ===
                 elif name == 'ups':
                     try:
-                        # apcaccess 명령을 실행하여 apcupsd 데몬이 응답하는지 확인
                         result = subprocess.run(['apcaccess'], capture_output=True, text=True, timeout=2)
                         if result.returncode == 0 and 'STATUS' in result.stdout:
                             newly_detected.add('ups')
                     except (FileNotFoundError, subprocess.TimeoutExpired):
-                        pass # apcaccess 명령이 없거나 응답이 없으면 무시
+                        pass
 
                 elif name in ['radon', 'th_o2', 'arduino'] and serial:
                     if self.config[name].get('port') and self._check_serial(self.config[name]['port']):

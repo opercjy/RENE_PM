@@ -1,7 +1,7 @@
 # workers/hv_worker.py
 
 import logging
-from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer
+from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer
 
 try:
     from caen_libs import caenhvwrapper as hv
@@ -9,6 +9,11 @@ except ImportError:
     hv = None
 
 class HVWorker(QObject):
+    """
+    [CAEN HV 통신 전담 워커]
+    C++ 래퍼를 통한 원격 제어 명령 하달 및 폴링을 전담한다.
+    지식망으로부터 전달된 딕셔너리 포맷의 명령을 해석하여 하드웨어 제어를 수행한다.
+    """
     data_ready = pyqtSignal(dict)
     error_occurred = pyqtSignal(str)
     connection_status = pyqtSignal(bool)
@@ -107,7 +112,10 @@ class HVWorker(QObject):
             self.control_command_status.emit("Error: HV device not connected.")
             return
         try:
-            cmd_type, slot, channels = command.get('type'), command.get('slot'), command.get('channels')
+            cmd_type = command.get('type')
+            slot = command.get('slot')
+            channels = command.get('channels')
+            
             if cmd_type == 'set_params':
                 params_to_set = command.get('params')
                 for param, value in params_to_set.items():

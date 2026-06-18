@@ -5,7 +5,7 @@ import numpy as np
 import logging
 from pymodbus.client import ModbusSerialClient
 from pymodbus.exceptions import ModbusException
-from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer
+from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer
 
 class ThO2Worker(QObject):
     avg_data_ready = pyqtSignal(float, float, float, float)
@@ -26,7 +26,11 @@ class ThO2Worker(QObject):
     @pyqtSlot()
     def start_worker(self):
         try:
-            self.client = ModbusSerialClient(port=self.config['port'], baudrate=self.config.get('baudrate', 4800), timeout=2, parity='N', stopbits=1, bytesize=8)
+            self.client = ModbusSerialClient(
+                port=self.config['port'], 
+                baudrate=self.config.get('baudrate', 4800), 
+                timeout=2, parity='N', stopbits=1, bytesize=8
+            )
             if not self.client.connect():
                 raise ConnectionError("Connection failed")
             self._is_running = True
@@ -57,23 +61,17 @@ class ThO2Worker(QObject):
                 QTimer.singleShot(5000, self.timer.start)
     
     def _process_and_enqueue(self, ts, temp, humi, o2):
-        # 1. GUI 그래프용 데이터 샘플링
         self.samples['temp'].append(temp)
         self.samples['humi'].append(humi)
         self.samples['o2'].append(o2)
         
-        # 2. DB 저장 및 GUI 그래프 업데이트 주기 확인 (약 30초)
         if len(self.samples['temp']) >= (30 / (self.interval / 1000)):
-            # GUI 그래프용 평균값 계산 및 전송
-            avg_t = np.mean(self.samples['temp'])
-            avg_h = np.mean(self.samples['humi'])
-            avg_o = np.mean(self.samples['o2'])
+            avg_t = float(np.mean(self.samples['temp']))
+            avg_h = float(np.mean(self.samples['humi']))
+            avg_o = float(np.mean(self.samples['o2']))
             self.avg_data_ready.emit(time.time(), avg_t, avg_h, avg_o)
             
-            # === 핵심 변경점: DB에는 평균이 아닌, '방금 들어온 마지막 값'을 저장 ===
             self._enqueue_db_data(ts, temp, humi, o2)
-            
-            # 샘플 초기화
             self.samples = {'temp': [], 'humi': [], 'o2': []}
 
     def _enqueue_db_data(self, ts, t, h, o):

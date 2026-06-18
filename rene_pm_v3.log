@@ -1,0 +1,19 @@
+2026-06-18 19:27:56,018 - INFO - [MainThread] - ============================================================
+2026-06-18 19:27:56,019 - INFO - [MainThread] - RENE-PM v3.0 (Decentralized Event-Driven Architecture) Starting
+2026-06-18 19:27:56,019 - INFO - [MainThread] - ============================================================
+2026-06-18 19:27:56,063 - INFO - [MainThread] - Database connection pool created successfully.
+2026-06-18 19:27:56,081 - INFO - [Dummy-1] - Database tables and indexes are ready.
+2026-06-18 19:27:56,083 - INFO - [Dummy-1] - Database worker started, using shared connection pool.
+2026-06-18 19:27:56,460 - INFO - [Dummy-2] - Connecting to CAEN HV at 192.168.0.39...
+2026-06-18 19:27:56,462 - INFO - [Dummy-3] - TH/O2 worker started with 2000ms interval.
+2026-06-18 19:27:56,567 - INFO - [Dummy-2] - Successfully connected to CAEN HV system.
+2026-06-18 19:27:56,584 - INFO - [Dummy-4] - Activated module LS_Temperature (SN: 02504298) as cDAQ2Mod3
+2026-06-18 19:27:56,585 - INFO - [Dummy-4] - Activated module LS_Level (SN: 024F0BD5) as cDAQ2Mod1
+2026-06-18 19:28:55,824 - INFO - [Dummy-1] - Successfully inserted batch of 1 records.
+2026-06-18 19:29:55,815 - INFO - [Dummy-1] - Successfully inserted batch of 99 records.
+2026-06-18 19:30:55,816 - INFO - [Dummy-1] - Successfully inserted batch of 99 records.
+2026-06-18 19:31:55,824 - INFO - [Dummy-1] - Successfully inserted batch of 99 records.
+2026-06-18 19:32:55,825 - INFO - [Dummy-1] - Successfully inserted batch of 99 records.
+2026-06-18 19:33:55,865 - INFO - [Dummy-1] - Successfully inserted batch of 99 records.
+2026-06-18 19:34:55,865 - INFO - [Dummy-1] - Successfully inserted batch of 99 records.
+2026-06-18 19:35:55,827 - INFO - [Dummy-1] - Successfully inserted batch of 99 records.

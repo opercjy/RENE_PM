@@ -1,0 +1,30 @@
+{
+    "PHASE_1": {
+        "title": "✅ PHASE 1: NORMAL",
+        "items": [
+            "Regular Monitoring Active",
+            "Check Sensor Status Periodically"
+        ]
+    },
+    "PHASE_2": {
+        "title": "⚠️ PHASE 2: WARNING",
+        "items": [
+            "Potential Hazard Detected",
+            "Verify Ventilation & Check Equipment",
+            "Prepare for Evacuation"
+        ]
+    },
+    "PHASE_3": {
+        "title": "🚨 PHASE 3: EMERGENCY",
+        "items": [
+            "CRITICAL DANGER (Fire/Toxic Gas)",
+            "EVACUATE IMMEDIATELY",
+            "Trigger Fire Alarm & Call 119"
+        ]
+    },
+    "CONTACTS": [
+        "📞 Fire Dept (소방서): 119",
+        "📞 RENE Executive Manager (실험 책임자): 010-XXXX-XXXX (Dr. XXX)",
+        "📞 KEPCO (한전 비상): 123"
+    ]
+}

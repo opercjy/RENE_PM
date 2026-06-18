@@ -3,11 +3,14 @@
 import time
 import logging
 import serial
-from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer
+from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer
 
 class RadonWorker(QObject):
+    """
+    [라돈 시리얼 통신 전담 워커]
+    안정화 타이머 로직과 QTimer 기반의 비동기 측정을 수행한다.
+    """
     data_ready = pyqtSignal(float, float, float)
-    # --- 수정: 시그널이 문자열과 정수, 두 개의 인자를 보내도록 변경 ---
     radon_status_update = pyqtSignal(str, int)
     error_occurred = pyqtSignal(str)
 
@@ -32,7 +35,6 @@ class RadonWorker(QObject):
             
             if self.config.get("unit_change_on_start", False):
                 self.radon_status_update.emit("Sending setup...", -1)
-                # ... (init/unit command 로직은 그대로)
             
             self.is_stabilizing = True
             self.countdown_seconds = self.config.get('stabilization_s', 600)
@@ -50,7 +52,7 @@ class RadonWorker(QObject):
             self.radon_status_update.emit(state_str, self.countdown_seconds)
         
         if self.countdown_seconds <= 0:
-            self.is_stabilizing = False # 안정화가 끝나면 측정 상태로 전환
+            self.is_stabilizing = False 
             self.measure()
 
     def measure(self):

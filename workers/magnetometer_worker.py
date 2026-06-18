@@ -1,13 +1,18 @@
-# workers/magnetometer_worker.py 파일을 아래 최종 버전으로 교체하세요.
+# workers/magnetometer_worker.py
 
 import time
 import math
 import numpy as np
 import logging
 import pyvisa
-from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
 class MagnetometerWorker(QObject):
+    """
+    [자기장 센서 통신 전담 워커]
+    PyVISA 인터페이스를 통해 장비와 통신하며, 데이터를 수집하여 
+    메인 이벤트 버스 및 데이터베이스 큐로 전달한다.
+    """
     avg_data_ready = pyqtSignal(float, list)
     raw_data_ready = pyqtSignal(dict)
     error_occurred = pyqtSignal(str)
@@ -39,7 +44,8 @@ class MagnetometerWorker(QObject):
                 self.inst = rm.open_resource(self.config['resource_name'], timeout=5000)
                 self.inst.read_termination = '\n'
                 self.inst.write_termination = '\n'
-                self.inst.write('*RST'); time.sleep(2.0)
+                self.inst.write('*RST')
+                time.sleep(2.0)
                 idn = self.inst.query('*IDN?').strip()
                 logging.info(f"[Magnetometer] Successfully connected to device. ID: {idn}")
 
@@ -74,7 +80,7 @@ class MagnetometerWorker(QObject):
             self.samples[i].append(raw_data[i])
         
         if len(self.samples[0]) >= int(60 / self.interval):
-            avg_for_gui = [np.mean(ch) for ch in self.samples]
+            avg_for_gui = [float(np.mean(ch)) for ch in self.samples]
             self.avg_data_ready.emit(time.time(), avg_for_gui)
             self._enqueue_db_data(ts, raw_data)
             self.samples = [[] for _ in range(4)]

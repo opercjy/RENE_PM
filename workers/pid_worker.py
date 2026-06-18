@@ -1,8 +1,10 @@
+# workers/pid_worker.py
+
 import time
 import logging
 from pymodbus.client import ModbusSerialClient
 from pymodbus.exceptions import ModbusException
-from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer
+from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer
 
 class PidWorker(QObject):
     data_ready = pyqtSignal(dict)
@@ -41,21 +43,14 @@ class PidWorker(QObject):
             ts = time.time()
             slave_id = self.config.get('slave_id', 2)
             
-            # RAEGuard2 PID Modbus Map
-            # 0x0008: Gas Concentration (32-bit integer, 2 registers)
-            # 0x0022: Alarm Status
-            
-            # 1. 농도 읽기 (Address 0x0008 = 8)
             rr_conc = self.client.read_holding_registers(address=8, count=2, slave=slave_id)
-            # 2. 알람 상태 읽기 (Address 0x0022 = 34)
             rr_alarm = self.client.read_holding_registers(address=34, count=1, slave=slave_id)
 
             if rr_conc.isError() or rr_alarm.isError():
                 raise ModbusException("Modbus Read Error")
 
-            # 32비트 정수 변환 (High Word + Low Word)
             raw_conc = (rr_conc.registers[0] << 16) + rr_conc.registers[1]
-            scale = self.config.get('scale_factor', 1000.0) # 기본적으로 1000으로 나눔 (소수점 3자리)
+            scale = self.config.get('scale_factor', 1000.0) 
             concentration = raw_conc / scale
             
             alarm_val = rr_alarm.registers[0]

@@ -1,7 +1,10 @@
 # workers/arduino_worker.py
 
-import time, numpy as np, logging, serial
-from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer
+import time
+import numpy as np
+import logging
+import serial
+from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer
 
 class ArduinoWorker(QObject):
     avg_data_ready = pyqtSignal(float, dict)
@@ -40,7 +43,8 @@ class ArduinoWorker(QObject):
                 for pair in line.split(','):
                     if ':' in pair:
                         key, val_str = pair.split(':', 1)
-                        key = key.strip(); val_str = val_str.strip()
+                        key = key.strip()
+                        val_str = val_str.strip()
                         if key in self.samples:
                             data[key] = None if val_str.upper() == 'NONE' else float(val_str)
                 
@@ -51,25 +55,18 @@ class ArduinoWorker(QObject):
             logging.warning(f"Arduino parsing error: {e}. Raw: '{line}'")
 
     def _process_and_enqueue(self, ts, raw_data):
-        # 1. GUI 그래프용 데이터 샘플링
         for key, val in raw_data.items():
             if val is not None and key in self.samples:
                 self.samples[key].append(val)
         
-        # 2. DB 저장 및 GUI 그래프 업데이트 주기 확인 (약 30초)
         first_key = next(iter(self.samples), None)
         if first_key and len(self.samples[first_key]) >= (30 / (self.interval / 1000)):
-            # GUI 그래프용 평균값 계산 및 전송
             avg_data_for_gui = {}
             for key, val_list in self.samples.items():
                 if val_list:
-                    avg_data_for_gui[key] = np.mean(val_list)
+                    avg_data_for_gui[key] = float(np.mean(val_list))
             self.avg_data_ready.emit(time.time(), avg_data_for_gui)
-            
-            # === 핵심 변경점: DB에는 평균이 아닌, '방금 들어온 마지막 값(raw_data)'을 저장 ===
             self._enqueue_db_data(ts, raw_data)
-            
-            # 샘플 초기화
             self.samples = {key: [] for key in self.samples.keys()}
 
     def _enqueue_db_data(self, ts, data):
@@ -91,4 +88,4 @@ class ArduinoWorker(QObject):
         self.timer.stop()
         if self.ser:
             self.ser.close()
-            logging.info("Arduino worker stopped and serial port closed.")
+            logging.info("Arduino worker stopped.")

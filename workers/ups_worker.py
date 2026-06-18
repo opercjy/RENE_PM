@@ -1,10 +1,10 @@
-# workers/ups_worker.py (최종 수정본)
+# workers/ups_worker.py
 
 import time
 import logging
 import subprocess
 import collections
-from PyQt5.QtCore import QObject, pyqtSignal, QTimer, pyqtSlot
+from PyQt6.QtCore import QObject, pyqtSignal, QTimer, pyqtSlot
 
 class UPSWorker(QObject):
     data_ready = pyqtSignal(dict)
@@ -38,7 +38,6 @@ class UPSWorker(QObject):
                     key, value = line.split(':', 1)
                     ups_info[key.strip()] = value.strip()
             
-            # === 변경점: .split()[0]을 사용하여 단위(unit)를 제거하고 숫자만 추출 ===
             data = {
                 'STATUS': ups_info.get('STATUS', 'N/A'),
                 'LINEV': float(ups_info.get('LINEV', '0.0').split()[0]),

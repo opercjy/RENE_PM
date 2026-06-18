@@ -1,0 +1,168 @@
+{
+    "logging_level": "INFO",
+    "shifter_name": "Jiyoung CHOI (Chonnam Nat'l Univ.)",
+    "gui": {
+        "max_data_points_days": 7,
+        "max_log_lines": 2000
+    },
+    "database": {
+        "enabled": true,
+        "user": "RENE_PM_ADMIN",
+        "password": "rene!Q@W#E$R",
+        "database": "RENE_PM",
+        "unix_socket": "/home/mariadb_data/mysql/mysql.sock",
+        "pool_name": "rene_pm_pool",
+        "pool_size": 5
+    },
+    "caen_hv": {
+        "enabled": true,
+        "system_type": "SY4527",
+        "link_type": "TCPIP",
+        "ip_address": "192.168.0.39",
+        "username": "admin",
+        "password": "admin",
+        "polling_interval_ms": 1000,
+        "crate_map": {
+            "1": {"model": "A7030P", "channels": 48, "description": "Target PMT HV (Inner)"},
+            "4": {"model": "A7435SN", "channels": 24, "description": "VETO PMT HV (Side)"},
+            "8": {"model": "A7435SN", "channels": 24, "description": "VETO PMT HV (Top/Bottom)"}
+        },
+        "display_channels": {
+            "1": "all",
+            "4": "all",
+            "8": "all"
+        }
+    },
+    "pmt_position_map": {
+        "1": {
+            "0": [763, 610], 
+            "1": [1170, 610]
+        },
+        "4": {
+            "0": [560, 546], "1": [1364, 538], "2": [556, 454],
+            "3": [1364, 450], "4": [560, 358], "5": [1369, 356],
+            "6": [470, 120], "7": [1440, 116], "8": [462, 175],
+            "9": [1452, 170], "10": [452, 230], "11": [1484, 224],
+            "12": [455, 687], "13": [1460, 676], "14": [460, 814],
+            "15": [1450, 804], "16": [470, 926], "17": [1440, 920]
+        },
+        "8": {
+            "8": [350, 320], "9": [210, 380], "10": [240, 522],
+            "11": [186, 580], "12": [240, 640], "13": [186, 700],
+            "14": [240, 760], "15": [186, 820], "16": [1550, 320],
+            "17": [1700, 380], "18": [1662, 520], "19": [1728, 580],
+            "20": [1662, 640], "21": [1728, 700], "22": [1662, 760],
+            "23": [1728, 820]
+        }
+    },
+    "daq": {
+        "enabled": true,
+        "modules": [
+            {
+                "role": "LS_Temperature",
+                "serial_number": "02504298",
+                "task_type": "rtd",
+                "channels": ["ai0", "ai1"]
+            },
+            {
+                "role": "LS_Level",
+                "serial_number": "024F0BD5",
+                "task_type": "volt",
+                "channels": ["ai0", "ai1"],
+                "mapping": [
+                    {"volt_range": [0.0, 10.0], "dist_range_mm": [400, 1800]},
+                    {"volt_range": [0.0, 10.0], "dist_range_mm": [400, 1800]}
+                ]
+            }
+        ],
+        "sampling_rate": 1000
+    },
+    "radon": {
+        "enabled": true,
+        "port": "/dev/ttyUSB0",
+        "baudrate": 19200,
+        "interval_s": 600,
+        "stabilization_s": 600,
+        "unit_change_on_start": false,
+        "reset_on_start": false,
+        "init_command": "RESET",
+        "unit_command": "UNIT 1"
+    },
+    "magnetometer": {
+        "enabled": false,
+        "resource_name": "USB0::0x1BFA::0x0498::0003055::INSTR",
+        "idVendor": "0x1BFA",
+        "idProduct": "0x0498",
+        "library_path": "@py",
+        "interval_s": 1.0
+    },
+    "th_o2": {
+        "enabled": true,
+        "port": "/dev/ttyUSB1",
+        "baudrate": 4800,
+        "modbus_id": 1,
+        "interval_s": 2
+    },
+    "arduino": {
+        "enabled": false,
+        "port": "/dev/ttyACM0",
+        "baudrate": 9600,
+        "interval_s": 2,
+        "data_mapping": {
+            "temp0": "analog_1",
+            "humi0": "analog_2",
+            "temp1": "analog_3",
+            "humi1": "analog_4",
+            "dist":  "analog_5"
+        }
+    },
+    "ups": {
+        "enabled": false,
+        "interval_s": 5
+    },
+    "netio_pdu": {
+        "enabled": false,
+        "ip_address": "192.168.0.2",
+        "port": 502,
+        "timeout_sec": 3,
+        "polling_interval_sec": 5,
+        "port_map": {
+            "1": "DAQ System",
+            "2": "HV Mainframe",
+            "3": "Cooling Fan 1",
+            "4": "Cooling Fan 2",
+            "5": "Network Switch",
+            "6": "Spare 1",
+            "7": "Spare 2",
+            "8": "Emergency Light"
+        }
+    },
+    "fire_detector": {
+        "enabled": false,
+        "port": "/dev/ttyUSB2",
+        "baudrate": 19200,
+        "slave_id": 1,
+        "interval_s": 1.0,
+        "model": "FS24X_Plus",
+        "registers": {
+            "alarm_level": 40003,
+            "fault_code": 40005,
+            "monitor_state": 40007
+        },
+        "comments": "Registers: alarm_level(Float32, 0=Normal, 1=Alarm1, 2=Alarm2), fault_code(Uint16), monitor_state(Uint8)"
+    },
+    "voc_detector": {
+        "enabled": false,
+        "port": "/dev/ttyUSB3",
+        "baudrate": 9600,
+        "slave_id": 2,
+        "interval_s": 2.0,
+        "model": "RAEGuard2_PID",
+        "scale_factor": 1000.0,
+        "thresholds": {
+            "warning_ppm": 50.0,
+            "critical_ppm": 100.0
+        },
+        "comments": "Based on RAEGuard 2 PID Manual (0.1-1000ppm range). Low=50, High=100."
+    }
+}
