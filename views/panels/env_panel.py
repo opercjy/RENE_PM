@@ -43,8 +43,8 @@ class EnvPanel(QWidget):
         legend_item.setBrush(pg.mkBrush(255, 255, 255, 150))
         
         for name, color in legends:
-            # [핵심] symbol 옵션 추가하여 단일 데이터라도 점(dot)으로 찍히게 함
-            self.curves[name] = plot.plot(pen=pg.mkPen(color, width=2.5), symbol='o', symbolSize=4, symbolBrush=color, name=name)
+            # 마커 옵션 제거 완료
+            self.curves[name] = plot.plot(pen=pg.mkPen(color, width=2.5), name=name)
             
         grid.addWidget(plot, row, col)
 
@@ -68,8 +68,6 @@ class EnvPanel(QWidget):
                 if len(dist[v_idx]) > 0:
                     self.curves["GdLS Level"].setData(x=dist[v_idx][:, 0], y=dist[v_idx][:, 1], connect='finite')
                     self.curves["GCLS Level"].setData(x=dist[v_idx][:, 0], y=dist[v_idx][:, 2], connect='finite')
-            
-            # 관련된 모든 플래그 정리
             flags["daq_ls_temp_L_LS_Temp"] = False
             flags["daq_ls_temp_R_LS_Temp"] = False
             flags["daq_ls_level_GdLS Level"] = False
