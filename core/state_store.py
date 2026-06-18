@@ -1,4 +1,4 @@
-# core/state_store.py
+# core/state_store.py (전체 덮어쓰기)
 
 import time
 import numpy as np
@@ -6,11 +6,6 @@ from PyQt6.QtCore import QObject, pyqtSlot
 from core.event_bus import global_bus
 
 class StateStore(QObject):
-    """
-    [데이터 중앙 창고 (Central State Store)]
-    시스템의 모든 최신 상태, NumPy 배열 데이터, 그래프 갱신 플래그를 보관합니다.
-    UI는 이 객체에 담긴 변수들을 읽어서 화면을 렌더링합니다.
-    """
     def __init__(self, config):
         super().__init__()
         self.config = config
@@ -26,6 +21,8 @@ class StateStore(QObject):
         self.latest_fire_data = {'status_code': 0, 'is_fire': False, 'is_fault': False, 'msg': 'Wait...'}
         self.latest_voc_data = {'conc': 0.0, 'alarm': 0}
         self.latest_radon_data = {'mu': 0.0, 'sigma': 0.0}
+        
+        self.hv_graph_counter = 0  # [핵심] HV 그래프 업데이트 주기용 카운터
 
         self._init_data_arrays()
         global_bus.sensor_data_updated.connect(self._on_sensor_data_updated)
@@ -66,7 +63,6 @@ class StateStore(QObject):
         }
 
     def get_unrolled_data(self, array_prefix, ptr_key=None):
-        """배열 이름과 포인터 키를 매핑하여 시각화 오류 해결"""
         ptr_key = ptr_key or array_prefix
         if ptr_key not in self.pointers: return None
         ptr = self.pointers[ptr_key]
@@ -78,11 +74,9 @@ class StateStore(QObject):
             return np.concatenate((arr[ptr:], arr[:ptr]), axis=0)
 
     def get_unrolled_hv_data(self, slot):
-        """HV 장비 데이터 전용 언롤링 반환"""
         ptr = self.pointers['hv_graph'].get(slot, 0)
         arr = self.hv_graph_data.get(slot)
-        if arr is None:
-            return None
+        if arr is None: return None
         if np.isnan(arr[ptr, 0]):
             return arr[:ptr]
         else:
@@ -90,30 +84,19 @@ class StateStore(QObject):
 
     @pyqtSlot(str, dict)
     def _on_sensor_data_updated(self, sensor_type, payload):
-        """지식망에서 데이터가 도착하면 종류에 따라 배열과 캐시를 업데이트"""
         ts = payload.get('ts', time.time())
         data = payload.get('data', {})
 
-        if sensor_type == 'daq_avg':
-            self._update_daq_data(ts, data)
-        elif sensor_type == 'radon_avg':
-            self._update_radon_data(ts, data)
-        elif sensor_type == 'mag_avg':
-            self._update_mag_data(ts, data)
-        elif sensor_type == 'th_o2_avg':
-            self._update_th_o2_data(ts, data)
-        elif sensor_type == 'arduino_avg':
-            self._update_arduino_data(ts, data)
-        elif sensor_type == 'ups_status':
-            self._update_ups_data(ts, data)
-        elif sensor_type == 'fire_status':
-            self._update_fire_data(ts, data)
-        elif sensor_type == 'voc_status':
-            self._update_voc_data(ts, data)
-        elif sensor_type == 'hv_status':
-            self._update_hv_data(ts, data)
-        elif sensor_type == 'raw_data':
-            self.latest_raw_values.update(data)
+        if sensor_type == 'daq_avg': self._update_daq_data(ts, data)
+        elif sensor_type == 'radon_avg': self._update_radon_data(ts, data)
+        elif sensor_type == 'mag_avg': self._update_mag_data(ts, data)
+        elif sensor_type == 'th_o2_avg': self._update_th_o2_data(ts, data)
+        elif sensor_type == 'arduino_avg': self._update_arduino_data(ts, data)
+        elif sensor_type == 'ups_status': self._update_ups_data(ts, data)
+        elif sensor_type == 'fire_status': self._update_fire_data(ts, data)
+        elif sensor_type == 'voc_status': self._update_voc_data(ts, data)
+        elif sensor_type == 'hv_status': self._update_hv_data(ts, data)
+        elif sensor_type == 'raw_data': self.latest_raw_values.update(data)
 
     def _update_daq_data(self, ts, data):
         ptr = self.pointers['daq']
@@ -172,8 +155,25 @@ class StateStore(QObject):
         self.plot_dirty_flags["voc_trend_VOC"] = True
 
     def _update_hv_data(self, ts, data):
+        """[핵심 추가] 최신값 갱신 및 1분마다 그래프 배열(hv_graph_data) 업데이트"""
         for slot, slot_data in data.get('slots', {}).items():
             board_temp = slot_data.get('board_temp')
             self.latest_board_temps[slot] = board_temp
             for channel, params in slot_data.get('channels', {}).items():
                 self.latest_hv_values[(slot, channel)] = params
+
+        self.hv_graph_counter += 1
+        if self.hv_graph_counter >= 60:
+            current_time = time.time()
+            for (s, c), p in self.latest_hv_values.items():
+                if s in self.hv_graph_data:
+                    ptr = self.pointers['hv_graph'].get(s, 0)
+                    self.hv_graph_data[s][ptr, 0] = current_time
+                    self.hv_graph_data[s][ptr, 1 + c * 2] = p.get('VMon', np.nan)
+                    self.hv_graph_data[s][ptr, 2 + c * 2] = p.get('IMon', np.nan)
+            
+            for s in self.hv_graph_data.keys():
+                self.pointers['hv_graph'][s] = (self.pointers['hv_graph'].get(s, 0) + 1) % self.max_lens['hv_graph']
+                self.plot_dirty_flags[f"hv_slot_{s}"] = True
+            
+            self.hv_graph_counter = 0
