@@ -35,9 +35,9 @@ class HVGraphPanel(QWidget):
         
         for ch in range(self.num_channels):
             c = colors[ch]
-            # [핵심] 점 데이터도 렌더링되게 symbol 파라미터 삽입
-            v_curve = v_plot.plot(pen=pg.mkPen(color=c, width=2), symbol='o', symbolSize=3, symbolBrush=c, name=f"CH{ch}")
-            i_curve = i_plot.plot(pen=pg.mkPen(color=c, width=2), symbol='o', symbolSize=3, symbolBrush=c, name=f"CH{ch}")
+            # 마커 제거
+            v_curve = v_plot.plot(pen=pg.mkPen(color=c, width=2), name=f"CH{ch}")
+            i_curve = i_plot.plot(pen=pg.mkPen(color=c, width=2), name=f"CH{ch}")
             self.curves.append({'v': v_curve, 'i': i_curve})
 
     @pyqtSlot()
