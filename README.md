@@ -94,28 +94,16 @@ sudo systemctl enable --now apcupsd
 
 * **CAEN HV 제어 라이브러리:**
 1. CAEN 공식 웹사이트에서 `CAEN HV Wrapper Library (Linux)` 소스코드를 다운로드하여 설치 스크립트(`install.sh`)를 실행하거나 `make install`을 통해 시스템(`/usr/lib`)에 `.so` 동적 라이브러리를 적재합니다. (`sudo ldconfig` 수행 필수)
-2. RENE 실험실 시스템에 맞게 C++ 라이브러리를 바인딩하여 자체 제작한 `caen_libs` 폴더로 이동하여 파이썬 래퍼를 수동 컴파일 및 설치합니다.
-
+2. CAEN 공식 파이썬 래퍼를 설치합니다.
 
 ```bash
-cd caen_libs/
-python setup.py build
-pip install -e .
-
+pip install caen-libs
 ```
 
 
 * **NI-DAQmx (National Instruments):**
-수위 및 온도 센서 제어를 위한 공식 리눅스 드라이버입니다.
-1. NI 공식 홈페이지에서 제공하는 `NI Linux Device Drivers` (RPM/DEB)를 시스템에 등록합니다.
-2. 리눅스 커널용 모듈을 설치합니다.
-
-
-```bash
-sudo dnf install ni-daqmx ni-linux-driver-dkms
-sudo dkms autoinstall  # 설치 후 커널 인식 및 장치 마운트를 위해 재부팅 권장
-
-```
+공식 리눅스 드라이버 관련으로 NI 공식 설명서를 참조 또는 필자가 작성한 저장소 참조 
+`https://github.com/opercjy/ni_linux_driver_dkms.git`
 
 
 
