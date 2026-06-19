@@ -1,168 +1,92 @@
-{
-    "logging_level": "INFO",
-    "shifter_name": "Jiyoung CHOI (Chonnam Nat'l Univ.)",
-    "gui": {
-        "max_data_points_days": 7,
-        "max_log_lines": 2000
-    },
-    "database": {
-        "enabled": true,
-        "user": "RENE_PM_ADMIN",
-        "password": "rene!Q@W#E$R",
-        "database": "RENE_PM",
-        "unix_socket": "/home/mariadb_data/mysql/mysql.sock",
-        "pool_name": "rene_pm_pool",
-        "pool_size": 5
-    },
-    "caen_hv": {
-        "enabled": true,
-        "system_type": "SY4527",
-        "link_type": "TCPIP",
-        "ip_address": "192.168.0.39",
-        "username": "admin",
-        "password": "admin",
-        "polling_interval_ms": 1000,
-        "crate_map": {
-            "1": {"model": "A7030P", "channels": 48, "description": "Target PMT HV (Inner)"},
-            "4": {"model": "A7435SN", "channels": 24, "description": "VETO PMT HV (Side)"},
-            "8": {"model": "A7435SN", "channels": 24, "description": "VETO PMT HV (Top/Bottom)"}
-        },
-        "display_channels": {
-            "1": "all",
-            "4": "all",
-            "8": "all"
-        }
-    },
-    "pmt_position_map": {
-        "1": {
-            "0": [763, 610], 
-            "1": [1170, 610]
-        },
-        "4": {
-            "0": [560, 546], "1": [1364, 538], "2": [556, 454],
-            "3": [1364, 450], "4": [560, 358], "5": [1369, 356],
-            "6": [470, 120], "7": [1440, 116], "8": [462, 175],
-            "9": [1452, 170], "10": [452, 230], "11": [1484, 224],
-            "12": [455, 687], "13": [1460, 676], "14": [460, 814],
-            "15": [1450, 804], "16": [470, 926], "17": [1440, 920]
-        },
-        "8": {
-            "8": [350, 320], "9": [210, 380], "10": [240, 522],
-            "11": [186, 580], "12": [240, 640], "13": [186, 700],
-            "14": [240, 760], "15": [186, 820], "16": [1550, 320],
-            "17": [1700, 380], "18": [1662, 520], "19": [1728, 580],
-            "20": [1662, 640], "21": [1728, 700], "22": [1662, 760],
-            "23": [1728, 820]
-        }
-    },
-    "daq": {
-        "enabled": true,
-        "modules": [
-            {
-                "role": "LS_Temperature",
-                "serial_number": "02504298",
-                "task_type": "rtd",
-                "channels": ["ai0", "ai1"]
-            },
-            {
-                "role": "LS_Level",
-                "serial_number": "024F0BD5",
-                "task_type": "volt",
-                "channels": ["ai0", "ai1"],
-                "mapping": [
-                    {"volt_range": [0.0, 10.0], "dist_range_mm": [400, 1800]},
-                    {"volt_range": [0.0, 10.0], "dist_range_mm": [400, 1800]}
-                ]
-            }
-        ],
-        "sampling_rate": 1000
-    },
-    "radon": {
-        "enabled": true,
-        "port": "/dev/ttyUSB0",
-        "baudrate": 19200,
-        "interval_s": 600,
-        "stabilization_s": 600,
-        "unit_change_on_start": false,
-        "reset_on_start": false,
-        "init_command": "RESET",
-        "unit_command": "UNIT 1"
-    },
-    "magnetometer": {
-        "enabled": false,
-        "resource_name": "USB0::0x1BFA::0x0498::0003055::INSTR",
-        "idVendor": "0x1BFA",
-        "idProduct": "0x0498",
-        "library_path": "@py",
-        "interval_s": 1.0
-    },
-    "th_o2": {
-        "enabled": true,
-        "port": "/dev/ttyUSB1",
-        "baudrate": 4800,
-        "modbus_id": 1,
-        "interval_s": 2
-    },
-    "arduino": {
-        "enabled": false,
-        "port": "/dev/ttyACM0",
-        "baudrate": 9600,
-        "interval_s": 2,
-        "data_mapping": {
-            "temp0": "analog_1",
-            "humi0": "analog_2",
-            "temp1": "analog_3",
-            "humi1": "analog_4",
-            "dist":  "analog_5"
-        }
-    },
-    "ups": {
-        "enabled": false,
-        "interval_s": 5
-    },
-    "netio_pdu": {
-        "enabled": false,
-        "ip_address": "192.168.0.2",
-        "port": 502,
-        "timeout_sec": 3,
-        "polling_interval_sec": 5,
-        "port_map": {
-            "1": "DAQ System",
-            "2": "HV Mainframe",
-            "3": "Cooling Fan 1",
-            "4": "Cooling Fan 2",
-            "5": "Network Switch",
-            "6": "Spare 1",
-            "7": "Spare 2",
-            "8": "Emergency Light"
-        }
-    },
-    "fire_detector": {
-        "enabled": true,
-        "port": "/dev/ttyUSB3",
-        "baudrate": 9600,
-        "parity": "E",
-        "slave_id": 45,
-        "interval_s": 1.0,
-        "model": "FS24X_Plus",
-        "registers": {
-            "alarm_level": 2,
-            "fault_code": 4,
-            "monitor_state": 6,
-            "temperature": 14
-        }
-    },
-    "voc_detector": {
-        "enabled": true,
-        "port": "/dev/ttyUSB2",
-        "baudrate": 9600,
-        "slave_id": 50,
-        "interval_s": 2.0,
-        "model": "RAEGuard2_PID",
-        "scale_factor": 1000.0,
-        "thresholds": {
-            "warning_ppm": 10.0,
-            "critical_ppm": 50.0
-        }
-    }
-}
+# diagnostics/test_flame_diagnostic.py
+
+import time
+import struct
+import glob
+from pymodbus.client import ModbusSerialClient
+
+# 현장 하드웨어 딥스위치 세팅
+BAUDRATE = 19200
+SLAVE_ID = 1
+PARITY = 'N'
+
+def test_flame():
+    print(f"[Flame Detector] FS24X Plus 자동 탐색 및 진단 (Baud: {BAUDRATE}, Slave: {SLAVE_ID}, Parity: {PARITY})")
+    
+    target_port = None
+    ports = sorted(glob.glob('/dev/ttyUSB*'))
+    
+    # 1. 자동 탐색 (Auto-Hunt)
+    for port in ports:
+        print(f"🔍 {port} 포트 스캔 중... ", end="", flush=True)
+        client = ModbusSerialClient(port=port, baudrate=BAUDRATE, timeout=0.5, parity=PARITY, stopbits=1, bytesize=8)
+        
+        if client.connect():
+            try:
+                # [핵심 수정] 타임아웃 예외 무시
+                res = client.read_holding_registers(address=2, count=2, slave=SLAVE_ID)
+                if not res.isError():
+                    target_port = port
+                    print("✅ 센서 응답 확인!")
+                    client.close()
+                    break
+            except Exception:
+                pass
+            client.close()
+        print("❌ 응답 없음")
+
+    if not target_port:
+        print("\n🚨 불꽃 감지기를 찾을 수 없습니다. (전원, 국번 세팅, 케이블을 확인하세요)")
+        return
+
+    print(f"\n🚀 [최종 연결 포트]: {target_port}")
+    print("-" * 65)
+    print(f"{'시간':^10} | {'상태 (State)':^15} | {'온도 (°C)':^10} | {'알람 레벨':^10} | {'고장 코드':^10}")
+    print("-" * 65)
+
+    # 2. 실시간 데이터 폴링
+    client = ModbusSerialClient(port=target_port, baudrate=BAUDRATE, timeout=1.0, parity=PARITY, stopbits=1, bytesize=8)
+    client.connect()
+    try:
+        while True:
+            current_time = time.strftime("%H:%M:%S")
+            try:
+                res_alarm = client.read_holding_registers(address=2, count=2, slave=SLAVE_ID)
+                res_fault = client.read_holding_registers(address=4, count=1, slave=SLAVE_ID)
+                res_state = client.read_holding_registers(address=6, count=1, slave=SLAVE_ID)
+                
+                if res_alarm.isError() or res_state.isError():
+                    print(f"{current_time:^10} | Modbus 응답 에러 (Timeout)")
+                else:
+                    raw_bytes = struct.pack('>HH', res_alarm.registers[0], res_alarm.registers[1])
+                    alarm_level = struct.unpack('>f', raw_bytes)[0]
+                    fault_code = res_fault.registers[0] if not res_fault.isError() else 0
+                    
+                    state_val = res_state.registers[0]
+                    if state_val in [1, 6]: state_str = "NORMAL"
+                    elif state_val in [2, 3]: state_str = "INHIBITED"
+                    elif state_val in [5, 7]: state_str = "WARNING"
+                    elif state_val in [1, 4, 8]: state_str = "FAULT"
+                    elif state_val in [16, 17, 3] or alarm_level >= 1.0: state_str = "FIRE ALARM!"
+                    else: state_str = f"UNKNOWN({state_val})"
+
+                    res_temp = client.read_holding_registers(address=14, count=1, slave=SLAVE_ID)
+                    if not res_temp.isError():
+                        temp_raw = res_temp.registers[0]
+                        if temp_raw > 32767: temp_raw -= 65536
+                        temperature = temp_raw / 10.0
+                    else:
+                        temperature = 0.0
+
+                    print(f"{current_time:^10} | {state_str:^15} | {temperature:^10.1f} | {alarm_level:^10.1f} | {fault_code:^10}")
+            except Exception as e:
+                print(f"{current_time:^10} | 예외 발생: {str(e)[:20]}")
+                
+            time.sleep(1.0)
+    except KeyboardInterrupt:
+        print("\n진단 종료.")
+    finally:
+        client.close()
+
+if __name__ == "__main__":
+    test_flame()

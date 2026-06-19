@@ -67,7 +67,7 @@
     },
     "th_o2": {
         "enabled": true,
-        "port": "/dev/ttyUSB1",
+        "port": "/dev/ttyUSB2",
         "baudrate": 4800,
         "modbus_id": 1,
         "interval_s": 2
@@ -93,7 +93,7 @@
     },
     "voc_detector": {
         "enabled": true,
-        "port": "/dev/ttyUSB2",
+        "port": "/dev/ttyUSB3",
         "baudrate": 9600,
         "slave_id": 50,
         "interval_s": 2.0,
@@ -106,7 +106,7 @@
     },
     "fire_detector": {
         "enabled": true,
-        "port": "/dev/ttyUSB3",
+        "port": "/dev/ttyUSB1",
         "baudrate": 9600,
         "parity": "E",
         "slave_id": 45,

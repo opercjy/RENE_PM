@@ -10,8 +10,6 @@ from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 class MagnetometerWorker(QObject):
     """
     [자기장 센서 통신 전담 워커]
-    PyVISA 인터페이스를 통해 장비와 통신하며, 데이터를 수집하여 
-    메인 이벤트 버스 및 데이터베이스 큐로 전달한다.
     """
     avg_data_ready = pyqtSignal(float, list)
     raw_data_ready = pyqtSignal(dict)
@@ -25,42 +23,47 @@ class MagnetometerWorker(QObject):
         self.samples = [[] for _ in range(4)]
         self._is_running = False
         self.inst = None
+        self.rm = None
 
     def _parse_and_convert_tesla_to_mg(self, response_str: str) -> float:
         try:
             numeric_part = response_str.strip().split(' ')[0]
-            value_in_tesla = float(numeric_part)
-            return value_in_tesla * 10_000_000
+            return float(numeric_part) * 10_000_000
         except (ValueError, IndexError) as e:
-            logging.warning(f"[Magnetometer] Failed to parse response '{response_str}': {e}")
             return 0.0
 
     @pyqtSlot()
     def run(self):
         self._is_running = True
+        
+        try:
+            self.rm = pyvisa.ResourceManager(self.config.get('library_path', '@py'))
+        except Exception as e:
+            self.error_occurred.emit(f"PyVISA ResourceManager Error: {e}")
+            self._is_running = False
+            return
+
         while self._is_running:
             try:
                 logging.info("[Magnetometer] Attempting to connect...")
-                rm = pyvisa.ResourceManager(self.config.get('library_path', '@py'))
-                
-                # 진단 스크립트와 동일하게 3000ms 타임아웃 부여
-                self.inst = rm.open_resource(self.config['resource_name'], timeout=3000)
+                self.inst = self.rm.open_resource(self.config['resource_name'], timeout=3000)
                 self.inst.read_termination = '\n'
                 self.inst.write_termination = '\n'
                 
-                # [복원] 진단 스크립트에서 완벽히 검증된 초기화 시퀀스 적용
+                # [복원] 진단 스크립트와 100% 동일한 SCPI 하드웨어 초기화 명령어
                 self.inst.write('*RST')
                 time.sleep(1.5)
                 
                 idn = self.inst.query('*IDN?').strip()
-                logging.info(f"[Magnetometer] Successfully connected to device. ID: {idn}")
+                logging.info(f"[Magnetometer] Successfully connected. ID: {idn}")
 
                 while self._is_running:
                     ts = time.time()
                     
-                    # 3축 자기장 데이터 폴링 (진단 스크립트 로직과 동일)
                     response_x = self.inst.query(':MEASure:SCALar:FLUX:X?')
+                    time.sleep(0.05)
                     response_y = self.inst.query(':MEASure:SCALar:FLUX:Y?')
+                    time.sleep(0.05)
                     response_z = self.inst.query(':MEASure:SCALar:FLUX:Z?')
                     
                     bx = self._parse_and_convert_tesla_to_mg(response_x)
@@ -72,14 +75,13 @@ class MagnetometerWorker(QObject):
                     self.raw_data_ready.emit(raw)
                     self._process_and_enqueue(ts, raw['mag'])
                     
-                    # 설정된 interval_s(1.0초) 주기를 정확히 맞춤
                     elapsed = time.time() - ts
                     sleep_time = max(0, self.interval - elapsed)
                     time.sleep(sleep_time)
 
             except pyvisa.errors.VisaIOError as e:
                 if not self._is_running: break
-                logging.error(f"[Magnetometer] I/O Error: {e}")  # 터미널 로깅 추가
+                logging.error(f"[Magnetometer] I/O Error: {e}")
                 self.error_occurred.emit(f"Magnetometer I/O Error: {e}")
                 if self.inst:
                     try: self.inst.close()
@@ -88,7 +90,7 @@ class MagnetometerWorker(QObject):
                 
             except Exception as e:
                 if not self._is_running: break
-                logging.error(f"[Magnetometer] Fatal Error: {e}")  # 터미널 로깅 추가
+                logging.error(f"[Magnetometer] Fatal Error: {e}")
                 self.error_occurred.emit(f"Magnetometer Fatal Error: {e}")
                 if self.inst:
                     try: self.inst.close()
@@ -99,7 +101,6 @@ class MagnetometerWorker(QObject):
         for i in range(4):
             self.samples[i].append(raw_data[i])
         
-        # 1분(60초) 분량의 데이터가 모이면 1회 렌더링 및 DB 푸시 (렌더링 병목 방지)
         if len(self.samples[0]) >= int(60 / self.interval):
             avg_for_gui = [float(np.mean(ch)) for ch in self.samples]
             self.avg_data_ready.emit(time.time(), avg_for_gui)
@@ -115,7 +116,8 @@ class MagnetometerWorker(QObject):
         logging.info("MagnetometerWorker stop method called.")
         self._is_running = False
         if self.inst:
-            try:
-                self.inst.close()
-            except Exception as e:
-                logging.error(f"Error closing PyVISA instrument: {e}")
+            try: self.inst.close()
+            except Exception: pass
+        if self.rm:
+            try: self.rm.close()
+            except Exception: pass

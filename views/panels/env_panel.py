@@ -17,7 +17,6 @@ class EnvPanel(QWidget):
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
-        
         container = QGroupBox("Environment & UPS Time-Series")
         container.setFont(QFont("Arial", 12, QFont.Weight.Bold))
         grid_layout = QGridLayout(container)
@@ -28,7 +27,6 @@ class EnvPanel(QWidget):
         self._create_plot_group(grid_layout, 1, 0, "LS Level (mm)", "mm", [("GdLS Level", "#1f77b4"), ("GCLS Level", "#ff7f0e")])
         self._create_plot_group(grid_layout, 1, 1, "Arduino", "Value", [("T1(°C)", "#1f77b4"), ("H1(%)", "#ff7f0e"), ("Dist(cm)", "#2ca02c")])
         self._create_plot_group(grid_layout, 1, 2, "Radon", "Bq/m³", [("Radon (μ)", "#1f77b4")])
-        
         layout.addWidget(container)
 
     def _create_plot_group(self, grid, row, col, title, y_label, legends):
@@ -38,21 +36,25 @@ class EnvPanel(QWidget):
         plot.showGrid(x=True, y=True, alpha=0.3)
         plot.setAxisItems({'bottom': pg.DateAxisItem(orientation='bottom')})
         plot.getAxis('left').setLabel(y_label)
-        
         legend_item = plot.addLegend(offset=(10, 10))
         legend_item.setBrush(pg.mkBrush(255, 255, 255, 150))
-        
         for name, color in legends:
-            # 마커 옵션 제거 완료
             self.curves[name] = plot.plot(pen=pg.mkPen(color, width=2.5), name=name)
-            
         grid.addWidget(plot, row, col)
 
     def _connect_signals(self):
         global_bus.ui_update_requested.connect(self._on_ui_update_requested)
 
+    def showEvent(self, event):
+        """[UX 개선] 사용자가 탭을 클릭하여 열 때 누적된 데이터를 즉시 화면에 렌더링"""
+        super().showEvent(event)
+        self._on_ui_update_requested()
+
     @pyqtSlot()
     def _on_ui_update_requested(self):
+        # [핵심 최적화] 보이지 않는 탭의 그래프 렌더링을 완전히 생략 (프리징 방지)
+        if not self.isVisible(): return
+        
         flags = self.state_store.plot_dirty_flags
         
         if flags.get("daq_ls_temp_L_LS_Temp"):

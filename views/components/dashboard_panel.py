@@ -26,11 +26,8 @@ class DashboardPanel(QGroupBox):
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(5, 5, 5, 5)
 
-        # ==========================================
-        # [디자인 개편] 모던한 플랫 디자인 안전 카드
-        # ==========================================
         safety_frame = QFrame()
-        safety_frame.setObjectName("SafetyCard") # QSS 타겟팅을 위한 ObjectName 부여
+        safety_frame.setObjectName("SafetyCard")
         safety_layout = QVBoxLayout(safety_frame)
         safety_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -47,7 +44,7 @@ class DashboardPanel(QGroupBox):
         self.safety_widgets['guide_lbl'].setFont(QFont("Arial", 11, QFont.Weight.Bold))
 
         self.safety_widgets['frame'] = safety_frame
-        self.safety_widgets['_last_phase'] = "" # 렌더링 갱신 방지용 캐시
+        self.safety_widgets['_last_phase'] = ""
 
         safety_layout.addStretch(1)
         safety_layout.addWidget(title_lbl)
@@ -57,7 +54,6 @@ class DashboardPanel(QGroupBox):
         safety_layout.addWidget(self.safety_widgets['guide_lbl'])
         safety_layout.addStretch(1)
 
-        # 초기 상태 (NORMAL) QSS 세팅
         safety_frame.setStyleSheet("""
             QFrame#SafetyCard {
                 background-color: #27AE60; 
@@ -87,6 +83,18 @@ class DashboardPanel(QGroupBox):
             ("🔋 UPS System", ["UPS_Status", "UPS_Charge", "UPS_TimeLeft"]),
             ("🎛️ HV System", ["HV_Board_Temps"]) 
         ]
+
+        # 불꽃 감지기 라인 색을 연한 주황(#e67e22)으로, 가스 감지기를 파란색(#1f77b4)으로 일치시킴
+        series_color_map = {
+            "L_LS_Temp": "#1f77b4", "R_LS_Temp": "#ff7f0e",
+            "GdLS_level": "#1f77b4", "GCLS_level": "#ff7f0e",
+            "B_x": "#d62728", "B_y": "#2ca02c", "B_z": "#1f77b4", "B": "#000000",
+            "TH_O2_Temp": "#1f77b4", "TH_O2_Humi": "#ff7f0e", "TH_O2_Oxygen": "#2ca02c",
+            "Temp1": "#1f77b4", "Humi1": "#ff7f0e", "Temp2": "#1f77b4", "Humi2": "#ff7f0e", "Dist": "#2ca02c",
+            "Radon_Value": "#1f77b4",
+            "Fire_Status": "#e67e22", 
+            "VOC_Conc": "#1f77b4"
+        }
 
         max_cols = 5
         row, col = 0, 0
@@ -121,15 +129,14 @@ class DashboardPanel(QGroupBox):
 
                 lbl = QLabel(f"{display_name}: Wait...")
                 lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                lbl.setProperty('_last_html', "") # 캐시 초기화
+                lbl.setProperty('_last_html', "")
                 self.labels[name] = lbl
                 
-                base_style = "font-size: 10pt;"
-                if name == "B_x": lbl.setStyleSheet(base_style + "color: #d62728; font-weight: bold;")
-                elif name == "B_y": lbl.setStyleSheet(base_style + "color: #2ca02c; font-weight: bold;")
-                elif name == "B_z": lbl.setStyleSheet(base_style + "color: #1f77b4; font-weight: bold;")
-                elif name == "B": lbl.setStyleSheet(base_style + "color: #000000; font-weight: bold;")
-                else: lbl.setStyleSheet(base_style)
+                target_color = series_color_map.get(name, "#2c3e50")
+                if name in ["UPS_Status", "UPS_Charge", "UPS_TimeLeft", "HV_Board_Temps"]:
+                    lbl.setStyleSheet("font-size: 10pt;")
+                else:
+                    lbl.setStyleSheet(f"font-size: 10pt; color: {target_color}; font-weight: bold;")
                 
                 g_layout.addWidget(lbl)
                 
@@ -157,7 +164,7 @@ class DashboardPanel(QGroupBox):
 
     def _update_radon_display(self):
         line1 = "<b>Radon Value:</b>"
-        line2 = f"{self.latest_radon_mu:.2f} &plusmn; {self.latest_radon_sigma:.2f}"
+        line2 = f"<span style='color:#1f77b4;'>{self.latest_radon_mu:.2f} &plusmn; {self.latest_radon_sigma:.2f}</span>"
         line3 = f"<b>Status:</b> {self.latest_radon_state}"
         line4 = f"({self.latest_radon_countdown}s left)" if self.latest_radon_countdown >= 0 else ""
         combined_text = f"{line1}<br>{line2}<br>{line3}<br>{line4}"
@@ -165,7 +172,6 @@ class DashboardPanel(QGroupBox):
 
     @pyqtSlot(str, str)
     def _on_safety_status_changed(self, phase, html_msg):
-        # [핵심] 상태가 변했을 때만 UI를 갱신하여 렌더링 병목 방지
         if self.safety_widgets.get('_last_phase') == phase:
             return
             
@@ -252,7 +258,6 @@ class DashboardPanel(QGroupBox):
             self._update_radon_display()
 
     def _update_label(self, key, html_text):
-        # [핵심 최적화] 텍스트가 실제로 바뀌었을 때만 UI를 갱신하여 파싱 병목 방지
         if key in self.labels:
             lbl = self.labels[key]
             if lbl.property('_last_html') != html_text:

@@ -46,16 +46,16 @@ class SafetyPanel(QWidget):
         graph_group = QGroupBox("📈 Safety Trends Analysis")
         graph_layout = QVBoxLayout(graph_group)
         
-        # [핵심 추가] bottom x축에 DateAxisItem 지정
         self.voc_plot = pg.PlotWidget(title="🧪 VOC Concentration (ppm)", axisItems={'bottom': pg.DateAxisItem(orientation='bottom')})
         self.voc_plot.setBackground('w')
         self.voc_plot.showGrid(x=True, y=True, alpha=0.3)
-        self.curve_voc = self.voc_plot.plot(pen=pg.mkPen('b', width=2), name="VOC")
+        self.curve_voc = self.voc_plot.plot(pen=pg.mkPen('#1f77b4', width=2), name="VOC")
         
         self.flame_plot = pg.PlotWidget(title="🔥 Flame Sensor Level", axisItems={'bottom': pg.DateAxisItem(orientation='bottom')})
         self.flame_plot.setBackground('w')
         self.flame_plot.showGrid(x=True, y=True, alpha=0.3)
-        self.curve_flame = self.flame_plot.plot(pen=pg.mkPen('r', width=2), name="Flame Level")
+        # 불꽃 시계열 라인 색상을 부드러운 당근색(#e67e22)으로 변경
+        self.curve_flame = self.flame_plot.plot(pen=pg.mkPen('#e67e22', width=2), name="Flame Level")
         
         graph_layout.addWidget(self.voc_plot)
         graph_layout.addWidget(self.flame_plot)
@@ -68,6 +68,10 @@ class SafetyPanel(QWidget):
         global_bus.sensor_data_updated.connect(self._on_sensor_data_updated)
         global_bus.ui_update_requested.connect(self._on_ui_update_requested)
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._on_ui_update_requested()
+
     @pyqtSlot(str, str)
     def _on_safety_status_changed(self, phase, html_msg):
         self.sop_text_edit.setHtml(html_msg)
@@ -78,13 +82,30 @@ class SafetyPanel(QWidget):
         if sensor_type == 'fire_status':
             msg = data.get('msg', 'Wait...')
             val = data.get('status_code', 0)
-            self.lbl_fire.setText(f"{msg} (Lv: {val})")
+            is_fire = data.get('is_fire', False)
+            is_fault = data.get('is_fault', False)
+            
+            c_hex = "#C0392B" if is_fire else ("#F39C12" if is_fault else "#27AE60")
+            self.lbl_fire.setText(f"<span style='color:{c_hex};'>{msg} (Lv: {val})</span>")
+            
         elif sensor_type == 'voc_status':
-            self.lbl_voc_conc.setText(f"{data.get('conc', 0.0):.3f} ppm")
-            self.lbl_voc_alarm.setText("ALARM" if data.get('alarm', 0) > 0 else "Normal")
+            conc = data.get('conc', 0.0)
+            alarm = data.get('alarm', 0)
+            
+            self.lbl_voc_conc.setText(f"<span style='color:#1f77b4;'>{conc:.3f} ppm</span>")
+            
+            if alarm >= 2:
+                a_str, a_hex = "CRITICAL ALARM", "#C0392B"
+            elif alarm == 1:
+                a_str, a_hex = "WARNING", "#F39C12"
+            else:
+                a_str, a_hex = "Normal", "#27AE60"
+            self.lbl_voc_alarm.setText(f"<span style='color:{a_hex};'>{a_str}</span>")
 
     @pyqtSlot()
     def _on_ui_update_requested(self):
+        if not self.isVisible(): return
+        
         flags = self.state_store.plot_dirty_flags
         
         if flags.get("voc_trend_VOC"):

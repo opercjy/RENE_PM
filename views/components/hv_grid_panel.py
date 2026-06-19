@@ -33,7 +33,6 @@ class ChannelWidget(QFrame):
         layout.addWidget(self.imon_label)
         self.setAutoFillBackground(True)
         
-        # [핵심] 렌더링 병목 방지용 상태 캐시
         self._last_v_text = ""
         self._last_i_text = ""
         self._last_bg_color = None
@@ -65,7 +64,6 @@ class ChannelWidget(QFrame):
             v_text = f"{vmon:.1f} V"
             i_text = f"{imon:.2f} uA"
 
-        # [핵심 최적화] 값이 실제로 변했을 때만 UI 업데이트 수행 (Repaint 최소화)
         if self._last_bg_color != color or self._last_text_color != text_color:
             palette = self.palette()
             palette.setColor(self.backgroundRole(), color)
@@ -82,14 +80,13 @@ class ChannelWidget(QFrame):
             self.imon_label.setText(i_text)
             self._last_i_text = i_text
 
-
 class HVGridPanel(QGroupBox):
     def __init__(self, config):
         super().__init__("CAEN High Voltage Status")
         self.config = config
         self.channel_widgets = {}
         self.slot_groupboxes = {}
-        self._last_titles = {} # 타이틀 갱신 캐시
+        self._last_titles = {}
         self._init_ui()
         self._connect_signals()
 
@@ -140,7 +137,6 @@ class HVGridPanel(QGroupBox):
             if board_temp is not None and board_temp != -1.0 and slot in self.slot_groupboxes:
                 original_desc = self.config.get('caen_hv', {}).get('crate_map', {}).get(str(slot), {}).get('description', '')
                 new_title = f"Slot {slot}: {original_desc}  [{board_temp:.1f} °C]"
-                # 타이틀 캐싱
                 if self._last_titles.get(slot) != new_title:
                     self.slot_groupboxes[slot].setTitle(new_title)
                     self._last_titles[slot] = new_title
@@ -150,7 +146,10 @@ class HVGridPanel(QGroupBox):
                 if key in self.channel_widgets:
                     widget = self.channel_widgets[key]
                     power_status = params.get('Pw', False)
-                    if widget.isVisible() != power_status: 
-                        widget.setVisible(power_status)
+                    
+                    # [핵심 최적화] isVisible() 대신 isHidden()을 사용하여 가려진 탭에서의 무한 레이아웃 갱신 원천 차단
+                    if widget.isHidden() == power_status: 
+                        widget.setHidden(not power_status)
+                        
                     if power_status: 
                         widget.update_status(params)

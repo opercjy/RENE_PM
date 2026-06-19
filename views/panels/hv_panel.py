@@ -38,7 +38,7 @@ class HVPanel(QWidget):
         ch_layout.addWidget(QLabel("End:")); ch_layout.addWidget(self.spin_ch_end)
         ch_layout.addWidget(self.chk_single)
         
-        # [핵심 추가] 장비에서 현재 설정값을 명시적으로 읽어오는 버튼
+        # [핵심] 장비에서 현재 설정값을 명시적으로 읽어오는 버튼
         self.btn_read = QPushButton("🔄 Read Current Setpoints")
         self.btn_read.setStyleSheet("background-color: #F39C12; color: white; font-weight: bold; padding: 5px;")
         self.btn_read.clicked.connect(self._request_current_setpoints)
@@ -67,7 +67,7 @@ class HVPanel(QWidget):
         
         control_layout.addRow("Slot:", self.combo_slot)
         control_layout.addRow("Channels:", ch_layout)
-        control_layout.addRow("", self.btn_read) # 읽기 버튼 추가
+        control_layout.addRow("", self.btn_read) 
         control_layout.addRow("Set Voltage (V0Set):", self.spin_v0)
         control_layout.addRow("Set Current (I0Set):", self.spin_i0)
         control_layout.addRow("", btn_apply)
@@ -85,7 +85,7 @@ class HVPanel(QWidget):
         # 내부 UI 이벤트 연동
         self.chk_single.stateChanged.connect(self._on_single_check_changed)
         self.spin_ch_start.valueChanged.connect(self._on_ch_start_changed)
-        # [핵심] 슬롯 콤보박스가 바뀔 때도 값을 다시 긁어오게 변경
+        # 슬롯 콤보박스가 바뀔 때도 값을 다시 긁어오게 변경
         self.combo_slot.currentTextChanged.connect(lambda _: self._request_current_setpoints())
 
     def _connect_signals(self):
@@ -102,7 +102,6 @@ class HVPanel(QWidget):
     def _append_log(self, level, msg):
         if "HV" in msg or "CAEN" in msg or "Slot" in msg or "Setpoint" in msg:
             color = "green" if level == "SUCCESS" else "red" if level == "ERROR" else "blue"
-            from datetime import datetime
             ts = datetime.now().strftime("%H:%M:%S")
             self.log_text.append(f"<span style='color:{color};'>[{ts}] [{level}] {msg}</span>")
 
@@ -115,8 +114,8 @@ class HVPanel(QWidget):
     def _on_ch_start_changed(self, val):
         if self.chk_single.isChecked():
             self.spin_ch_end.setValue(val)
-        # 채널 번호가 변경되면 서버에 세팅값 요청
-        self._request_current_setpoints()
+        # 서버 부하 방지를 위해 채널 SpinBox 조작 시 발생하는 자동 조회(Auto-Fetch) 로직 삭제. 
+        # 사용자가 "Read Current Setpoints" 버튼을 수동 조작하도록 유도.
 
     def _request_current_setpoints(self):
         try:
@@ -147,7 +146,8 @@ class HVPanel(QWidget):
             slot = int(self.combo_slot.currentText())
             ch_start = self.spin_ch_start.value()
             ch_end = self.spin_ch_end.value()
-        except ValueError: return
+        except ValueError: 
+            return
         
         v0 = self.spin_v0.value()
         i0 = self.spin_i0.value()
@@ -171,18 +171,30 @@ class HVPanel(QWidget):
             slot = int(self.combo_slot.currentText())
             ch_start = self.spin_ch_start.value()
             ch_end = self.spin_ch_end.value()
-        except ValueError: return
+        except ValueError: 
+            return
         
-        reply = QMessageBox.question(
-            self, '⚠️ Warning', 
-            f"Turn Power {'ON' if state else 'OFF'} for Slot {slot}, Channels {ch_start}-{ch_end}?", 
+        # 1차 경고
+        reply1 = QMessageBox.warning(
+            self, '1차 경고: 전원 제어', 
+            f"Slot {slot}, Channels {ch_start}-{ch_end}의 전원을 {'ON' if state else 'OFF'} 하시겠습니까?", 
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, 
             QMessageBox.StandardButton.No
         )
-        if reply == QMessageBox.StandardButton.Yes:
-            channels = list(range(ch_start, ch_end + 1))
-            cmd = {
-                'type': 'set_power', 'slot': slot, 
-                'channels': channels, 'value': state
-            }
-            global_bus.cmd_hv_control.emit(cmd)
+        
+        if reply1 == QMessageBox.StandardButton.Yes:
+            # 2차 펫핑거(Fat Finger) 방지 인터락 (Double Interlock)
+            reply2 = QMessageBox.critical(
+                self, '2차 경고: 최종 확인', 
+                "⚠️ 조작 실수 방지 ⚠️\n\n정말로 고전압 출력을 제어하시겠습니까?", 
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, 
+                QMessageBox.StandardButton.No
+            )
+            
+            if reply2 == QMessageBox.StandardButton.Yes:
+                channels = list(range(ch_start, ch_end + 1))
+                cmd = {
+                    'type': 'set_power', 'slot': slot, 
+                    'channels': channels, 'value': state
+                }
+                global_bus.cmd_hv_control.emit(cmd)

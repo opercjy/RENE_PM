@@ -35,13 +35,18 @@ class HVGraphPanel(QWidget):
         
         for ch in range(self.num_channels):
             c = colors[ch]
-            # 마커 제거
             v_curve = v_plot.plot(pen=pg.mkPen(color=c, width=2), name=f"CH{ch}")
             i_curve = i_plot.plot(pen=pg.mkPen(color=c, width=2), name=f"CH{ch}")
             self.curves.append({'v': v_curve, 'i': i_curve})
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._on_update()
+
     @pyqtSlot()
     def _on_update(self):
+        if not self.isVisible(): return
+        
         flags = self.state_store.plot_dirty_flags
         if flags.get(f"hv_slot_{self.slot}"):
             unrolled = self.state_store.get_unrolled_hv_data(self.slot)

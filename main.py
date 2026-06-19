@@ -60,7 +60,7 @@ def init_logging():
     logging.getLogger().addHandler(eb_handler)
     
     logging.info("="*60)
-    logging.info("RENE-PM v3.0 (Decentralized Event-Driven Architecture) Starting")
+    logging.info("RENE-PM v3.0 (Event-Driven Architecture) Starting")
     logging.info("="*60)
 
 def create_db_pool(db_config):
@@ -114,7 +114,6 @@ if __name__ == '__main__':
     main_window = MainWindow(CONFIG, state_store, db_pool)
     main_window.show()
 
-    # [최적화] CPU 부하 방지를 위해 무거운 그래프 렌더링 큐 처리 주기를 5초(5000ms)로 이완
     main_window.ui_timer = QTimer(main_window)
     main_window.ui_timer.timeout.connect(lambda: global_bus.ui_update_requested.emit())
     main_window.ui_timer.start(5000)

@@ -1,4 +1,4 @@
-# views/main_window.py
+# views/main_window.py (전체 덮어쓰기)
 
 import sys
 import json
@@ -37,7 +37,7 @@ class MainWindow(QMainWindow):
         self._init_ui()
 
     def _init_ui(self):
-        self.setWindowTitle("RENE-PM v3.0 Decentralized")
+        self.setWindowTitle("RENE-PM v3.0")
         self.setGeometry(50, 50, 1920, 1080)
         
         self.status_bar = QStatusBar(self)
@@ -116,9 +116,10 @@ class MainWindow(QMainWindow):
 
         self.clock_timer = QTimer(self)
         self.clock_timer.timeout.connect(self._update_clock)
-        self.clock_timer.start(1000)
+        self.clock_timer.start(100)
         self._update_clock()
 
     def _update_clock(self):
         current_time = datetime.now().strftime(" 🕒 %Y-%m-%d %H:%M:%S ")
-        self.clock_label.setText(current_time)
+        if self.clock_label.text() != current_time:
+            self.clock_label.setText(current_time)

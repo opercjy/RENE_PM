@@ -1,59 +1,67 @@
+# diagnostics/test_pid_diagnostic.py
+
 import time
+import glob
 from pymodbus.client import ModbusSerialClient
 from pymodbus.exceptions import ModbusException
 
-PORT = '/dev/ttyUSB2'
+# 현장 하드웨어 딥스위치 세팅
 BAUDRATE = 9600
-SLAVE_ID = 50
+SLAVE_ID = 2
 SCALE_FACTOR = 1000.0
 
 def test_pid_diagnostics():
-    print(f"[{PORT}] RAEGuard 2 PID 정밀 진단 시작 (Baud: {BAUDRATE}, Slave ID: {SLAVE_ID})")
+    print(f"[VOC/PID Detector] RAEGuard 2 PID 자동 탐색 및 진단 (Baud: {BAUDRATE}, Slave: {SLAVE_ID})")
     
-    client = ModbusSerialClient(
-        port=PORT, baudrate=BAUDRATE, timeout=1.0, 
-        parity='N', stopbits=1, bytesize=8
-    )
+    target_port = None
+    ports = sorted(glob.glob('/dev/ttyUSB*'))
+    
+    # 1. 자동 탐색 (Auto-Hunt)
+    for port in ports:
+        print(f"🔍 {port} 포트 스캔 중... ", end="", flush=True)
+        client = ModbusSerialClient(port=port, baudrate=BAUDRATE, timeout=0.5, parity='N', stopbits=1, bytesize=8)
+        
+        if client.connect():
+            try:
+                # [핵심 수정] 타임아웃 예외가 발생해도 스크립트가 죽지 않도록 예외 처리
+                res = client.read_holding_registers(address=8, count=2, slave=SLAVE_ID)
+                if not res.isError():
+                    target_port = port
+                    print("✅ 센서 응답 확인!")
+                    client.close()
+                    break
+            except Exception:
+                pass # 응답이 없으면 조용히 무시하고 다음 포트로 넘어감
+            client.close()
+        print("❌ 응답 없음")
 
-    if not client.connect():
-        print("[오류] 포트 열기 실패.")
+    if not target_port:
+        print("\n🚨 가스 감지기를 찾을 수 없습니다. (전원, 국번 세팅, 케이블을 확인하세요)")
         return
 
-    print("-" * 60)
-    print(f"{'시간':^10} | {'농도 (ppm)':^15} | {'H/W 알람(Reg 34)':^20}")
-    print("-" * 60)
+    print(f"\n🚀 [최종 연결 포트]: {target_port}")
+    print("-" * 50)
+    print(f"{'시간':^10} | {'VOC 농도 (ppm)':^15} | {'통신 상태':^15}")
+    print("-" * 50)
 
+    # 2. 실시간 데이터 폴링
+    client = ModbusSerialClient(port=target_port, baudrate=BAUDRATE, timeout=1.0, parity='N', stopbits=1, bytesize=8)
+    client.connect()
     try:
         while True:
             current_time = time.strftime("%H:%M:%S")
-            conc_str = "ERR"
-            alarm_str = "ERR"
-
-            # 1. 농도 레지스터 읽기 (Address 8, Count 2)
             try:
                 res_conc = client.read_holding_registers(address=8, count=2, slave=SLAVE_ID)
-                if not res_conc.isError():
+                if res_conc.isError():
+                    print(f"{current_time:^10} | {'ERR (ErrorObj)':^15} | {'수신 실패':^15}")
+                else:
                     raw_conc = (res_conc.registers[0] << 16) + res_conc.registers[1]
                     concentration = raw_conc / SCALE_FACTOR
-                    conc_str = f"{concentration:.3f}"
-            except ModbusException:
-                pass
-
-            # 2. 하드웨어 알람 레지스터 읽기 (Address 34, Count 1)
-            # 이 요청이 실패하면 해당 펌웨어는 레지스터 34를 지원하지 않는 것이다.
-            try:
-                res_alarm = client.read_holding_registers(address=34, count=1, slave=SLAVE_ID)
-                if not res_alarm.isError():
-                    alarm_val = res_alarm.registers[0]
-                    alarm_str = f"Status: {alarm_val}"
-                else:
-                    alarm_str = "Not Supported"
-            except ModbusException:
-                alarm_str = "Exception"
-
-            print(f"{current_time:^10} | {conc_str:^15} | {alarm_str:^20}")
+                    print(f"{current_time:^10} | {concentration:^15.3f} | {'정상 수신':^15}")
+            except Exception as e:
+                print(f"{current_time:^10} | {'ERR (Exception)':^15} | {str(e)[:15]:^15}")
+            
             time.sleep(2.0)
-
     except KeyboardInterrupt:
         print("\n진단 종료.")
     finally:
