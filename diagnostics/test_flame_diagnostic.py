@@ -34,15 +34,46 @@
         }
     },
     "pmt_position_map": {
-        "1": { "0": [763, 610], "1": [1170, 610] },
-        "4": { "0": [560, 546], "1": [1364, 538], "2": [556, 454], "3": [1364, 450], "4": [560, 358], "5": [1369, 356], "6": [470, 120], "7": [1440, 116], "8": [462, 175], "9": [1452, 170], "10": [452, 230], "11": [1484, 224], "12": [455, 687], "13": [1460, 676], "14": [460, 814], "15": [1450, 804], "16": [470, 926], "17": [1440, 920] },
-        "8": { "8": [350, 320], "9": [210, 380], "10": [240, 522], "11": [186, 580], "12": [240, 640], "13": [186, 700], "14": [240, 760], "15": [186, 820], "16": [1550, 320], "17": [1700, 380], "18": [1662, 520], "19": [1728, 580], "20": [1662, 640], "21": [1728, 700], "22": [1662, 760], "23": [1728, 820] }
+        "1": {
+            "0": [763, 610], 
+            "1": [1170, 610]
+        },
+        "4": {
+            "0": [560, 546], "1": [1364, 538], "2": [556, 454],
+            "3": [1364, 450], "4": [560, 358], "5": [1369, 356],
+            "6": [470, 120], "7": [1440, 116], "8": [462, 175],
+            "9": [1452, 170], "10": [452, 230], "11": [1484, 224],
+            "12": [455, 687], "13": [1460, 676], "14": [460, 814],
+            "15": [1450, 804], "16": [470, 926], "17": [1440, 920]
+        },
+        "8": {
+            "8": [350, 320], "9": [210, 380], "10": [240, 522],
+            "11": [186, 580], "12": [240, 640], "13": [186, 700],
+            "14": [240, 760], "15": [186, 820], "16": [1550, 320],
+            "17": [1700, 380], "18": [1662, 520], "19": [1728, 580],
+            "20": [1662, 640], "21": [1728, 700], "22": [1662, 760],
+            "23": [1728, 820]
+        }
     },
     "daq": {
         "enabled": true,
         "modules": [
-            { "role": "LS_Temperature", "serial_number": "02504298", "task_type": "rtd", "channels": ["ai0", "ai1"] },
-            { "role": "LS_Level", "serial_number": "024F0BD5", "task_type": "volt", "channels": ["ai0", "ai1"], "mapping": [ {"volt_range": [0.0, 10.0], "dist_range_mm": [400, 1800]}, {"volt_range": [0.0, 10.0], "dist_range_mm": [400, 1800]} ] }
+            {
+                "role": "LS_Temperature",
+                "serial_number": "02504298",
+                "task_type": "rtd",
+                "channels": ["ai0", "ai1"]
+            },
+            {
+                "role": "LS_Level",
+                "serial_number": "024F0BD5",
+                "task_type": "volt",
+                "channels": ["ai0", "ai1"],
+                "mapping": [
+                    {"volt_range": [0.0, 10.0], "dist_range_mm": [400, 1800]},
+                    {"volt_range": [0.0, 10.0], "dist_range_mm": [400, 1800]}
+                ]
+            }
         ],
         "sampling_rate": 1000
     },
@@ -58,7 +89,7 @@
         "unit_command": "UNIT 1"
     },
     "magnetometer": {
-        "enabled": true,
+        "enabled": false,
         "resource_name": "USB0::0x1BFA::0x0498::0003055::INSTR",
         "idVendor": "0x1BFA",
         "idProduct": "0x0498",
@@ -77,7 +108,13 @@
         "port": "/dev/ttyACM0",
         "baudrate": 9600,
         "interval_s": 2,
-        "data_mapping": { "temp0": "analog_1", "humi0": "analog_2", "temp1": "analog_3", "humi1": "analog_4", "dist":  "analog_5" }
+        "data_mapping": {
+            "temp0": "analog_1",
+            "humi0": "analog_2",
+            "temp1": "analog_3",
+            "humi1": "analog_4",
+            "dist":  "analog_5"
+        }
     },
     "ups": {
         "enabled": false,
@@ -89,19 +126,15 @@
         "port": 502,
         "timeout_sec": 3,
         "polling_interval_sec": 5,
-        "port_map": { "1": "DAQ System", "2": "HV Mainframe", "3": "Cooling Fan 1", "4": "Cooling Fan 2", "5": "Network Switch", "6": "Spare 1", "7": "Spare 2", "8": "Emergency Light" }
-    },
-    "voc_detector": {
-        "enabled": true,
-        "port": "/dev/ttyUSB2",
-        "baudrate": 9600,
-        "slave_id": 50,
-        "interval_s": 2.0,
-        "model": "RAEGuard2_PID",
-        "scale_factor": 1000.0,
-        "thresholds": {
-            "warning_ppm": 10.0,
-            "critical_ppm": 50.0
+        "port_map": {
+            "1": "DAQ System",
+            "2": "HV Mainframe",
+            "3": "Cooling Fan 1",
+            "4": "Cooling Fan 2",
+            "5": "Network Switch",
+            "6": "Spare 1",
+            "7": "Spare 2",
+            "8": "Emergency Light"
         }
     },
     "fire_detector": {
@@ -117,6 +150,19 @@
             "fault_code": 4,
             "monitor_state": 6,
             "temperature": 14
+        }
+    },
+    "voc_detector": {
+        "enabled": true,
+        "port": "/dev/ttyUSB2",
+        "baudrate": 9600,
+        "slave_id": 50,
+        "interval_s": 2.0,
+        "model": "RAEGuard2_PID",
+        "scale_factor": 1000.0,
+        "thresholds": {
+            "warning_ppm": 10.0,
+            "critical_ppm": 50.0
         }
     }
 }

@@ -1,4 +1,4 @@
-# workers/th_o2_worker.py
+# workers/th_o2_worker.py (전체 덮어쓰기)
 
 import time
 import numpy as np
@@ -6,6 +6,8 @@ import logging
 from pymodbus.client import ModbusSerialClient
 from pymodbus.exceptions import ModbusException
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer
+
+logging.getLogger("pymodbus").setLevel(logging.CRITICAL)
 
 class ThO2Worker(QObject):
     avg_data_ready = pyqtSignal(float, float, float, float)
@@ -22,6 +24,7 @@ class ThO2Worker(QObject):
         self.interval = int(config.get('interval_s', 1.0) * 1000)
         self._is_running = False
         self.samples = {'temp': [], 'humi': [], 'o2': []}
+        self.consecutive_errors = 0
 
     @pyqtSlot()
     def start_worker(self):
@@ -29,7 +32,8 @@ class ThO2Worker(QObject):
             self.client = ModbusSerialClient(
                 port=self.config['port'], 
                 baudrate=self.config.get('baudrate', 4800), 
-                timeout=2, parity='N', stopbits=1, bytesize=8
+                timeout=1.0, parity='N', stopbits=1, bytesize=8,
+                retries=0
             )
             if not self.client.connect():
                 raise ConnectionError("Connection failed")
@@ -45,7 +49,11 @@ class ThO2Worker(QObject):
             ts = time.time()
             res = self.client.read_holding_registers(address=0, count=3, slave=self.config['modbus_id'])
             if res.isError():
-                raise ModbusException(f"Response Error: {res}")
+                raise ModbusException(f"Response Error")
+            
+            if self.consecutive_errors >= 10:
+                logging.info("TH/O2 Sensor 통신이 복구되었습니다.")
+            self.consecutive_errors = 0
             
             h = res.registers[0] / 10.0
             t_raw = res.registers[1]
@@ -55,10 +63,9 @@ class ThO2Worker(QObject):
             self.raw_data_ready.emit({'th_o2': {'temp': t, 'humi': h, 'o2': o}})
             self._process_and_enqueue(ts, t, h, o)
         except Exception as e:
-            self.error_occurred.emit(f"TH/O2 Comm Error: {e}")
-            self.timer.stop()
-            if self._is_running:
-                QTimer.singleShot(5000, self.timer.start)
+            self.consecutive_errors += 1
+            if self.consecutive_errors == 10:
+                self.error_occurred.emit(f"TH/O2 Sensor 통신 단절 (10회 연속 실패).")
     
     def _process_and_enqueue(self, ts, temp, humi, o2):
         self.samples['temp'].append(temp)
@@ -84,4 +91,3 @@ class ThO2Worker(QObject):
         self.timer.stop()
         if self.client:
             self.client.close()
-            logging.info("TH/O2 worker stopped and client closed.")

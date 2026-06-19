@@ -1,4 +1,4 @@
-# workers/radon_worker.py
+# workers/radon_worker.py (전체 덮어쓰기)
 
 import time
 import logging
@@ -29,9 +29,11 @@ class RadonWorker(QObject):
 
     @pyqtSlot()
     def start_worker(self):
-        logging.debug("[RadonWorker] start_worker() called.")
+        # [수정] debug를 info로 변경하여 로그에 남게 함
+        logging.info(f"RadonWorker started on {self.config['port']}")
         try:
-            self.ser = serial.Serial(self.config['port'], 19200, timeout=10)
+            # [수정] 타임아웃을 10에서 2로 줄이고, 쓰기 타임아웃 추가하여 GIL 프리징 방어
+            self.ser = serial.Serial(self.config['port'], 19200, timeout=2.0, write_timeout=2.0)
             
             if self.config.get("unit_change_on_start", False):
                 self.radon_status_update.emit("Sending setup...", -1)

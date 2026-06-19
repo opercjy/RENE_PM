@@ -1,4 +1,4 @@
-# experts/worker_manager.py
+# experts/worker_manager.py (전체 덮어쓰기)
 
 import logging
 import time
@@ -23,16 +23,12 @@ class WorkerManager(QObject):
         self.config = config
         self.db_queue = db_queue
         self.threads = {}
-        
         self.hv_db_push_counter = 0
         
-        global_bus.cmd_hv_control.connect(self._forward_hv_cmd)
-        global_bus.cmd_pdu_control_single.connect(self._forward_pdu_single_cmd)
-        global_bus.cmd_pdu_control_all.connect(self._forward_pdu_all_cmd)
+        # [핵심] UI를 멈추게 만들던 모든 Direct Call(forward 함수) 삭제 완료
         global_bus.cmd_toggle_worker.connect(self.toggle_worker)
 
     def toggle_worker(self, name, enable):
-        """런타임 워커 동적 제어 (Hot-Swap)"""
         if enable:
             if name not in self.threads:
                 global_bus.system_log_message.emit("INFO", f"[{name}] 워커 스레드 동적 할당 및 가동 시작.")
@@ -85,7 +81,6 @@ class WorkerManager(QObject):
         self.threads[name] = (thread, worker)
 
     def _handle_hv_data_ready(self, d):
-        """HV 데이터를 UI와 DB로 라우팅 (1분당 1회 DB Push)"""
         ts = self._now()
         global_bus.sensor_data_updated.emit('hv_status', {'ts': ts, 'data': d})
         
@@ -113,6 +108,11 @@ class WorkerManager(QObject):
             worker.connection_status.connect(lambda s: global_bus.device_connection_changed.emit('caen_hv', s))
             worker.control_command_status.connect(lambda msg: global_bus.system_log_message.emit("INFO", msg))
             worker.setpoints_ready.connect(global_bus.hv_setpoints_ready.emit)
+            
+            # [핵심] 시그널과 워커 슬롯을 1:1로 직접 연결하여 완벽한 비동기 큐잉 달성
+            global_bus.request_hv_setpoints.connect(worker.fetch_setpoints)
+            global_bus.cmd_hv_control.connect(worker.execute_control_command)
+            
         elif name == 'daq':
             worker.avg_data_ready.connect(lambda ts, d: global_bus.sensor_data_updated.emit('daq_avg', {'ts': ts, 'data': d}))
             worker.raw_data_ready.connect(lambda d: global_bus.sensor_data_updated.emit('raw_data', {'ts': self._now(), 'data': d}))
@@ -140,36 +140,24 @@ class WorkerManager(QObject):
             worker.sig_log_message.connect(global_bus.system_log_message.emit)
             if hasattr(worker, 'sig_queue_data'):
                 worker.sig_queue_data.connect(lambda d: self.db_queue.put(d))
+            # [핵심] PDU 역시 비동기 다이렉트 연결
+            global_bus.cmd_pdu_control_single.connect(worker.control_single_port)
+            global_bus.cmd_pdu_control_all.connect(worker.control_all_ports)
 
     def _now(self): return time.time()
-    def _forward_hv_cmd(self, payload):
-        if 'caen_hv' in self.threads: self.threads['caen_hv'][1].execute_control_command(payload)
-    def _forward_pdu_single_cmd(self, port_num, state):
-        if 'netio_pdu' in self.threads: self.threads['netio_pdu'][1].control_single_port(port_num, state)
-    def _forward_pdu_all_cmd(self, state):
-        if 'netio_pdu' in self.threads: self.threads['netio_pdu'][1].control_all_ports(state)
 
     def stop_all(self):
-        """메인 애플리케이션 종료 시 호출되는 안전한 전체 스레드 종료 시퀀스"""
-        # 1. 스레드 종류에 맞는 안전한 종료 명령 발송
         for name, (thread, worker) in list(self.threads.items()):
             if thread.isRunning() and not sip.isdeleted(worker):
                 stop_method = 'stop' if hasattr(worker, 'stop') else 'stop_worker'
-                
-                # [핵심 수정 1] while 루프 기반은 직접 강제 인터럽트
                 if name in ['daq', 'magnetometer']:
                     worker._is_running = False
-                    if hasattr(worker, stop_method):
-                        getattr(worker, stop_method)()
-                # [핵심 수정 2] QTimer 기반은 워커의 이벤트 루프에서 비동기로 끄도록 명령
+                    if hasattr(worker, stop_method): getattr(worker, stop_method)()
                 else:
                     if hasattr(worker, stop_method):
                         QMetaObject.invokeMethod(worker, stop_method, Qt.ConnectionType.QueuedConnection)
-                
-                # [핵심 수정 3] QThread 고유의 quit()을 메인 스레드에서 직접 호출
                 thread.quit()
 
-        # 2. 모든 스레드가 정상 종료될 때까지 대기 및 정리
         for name, (thread, worker) in list(self.threads.items()):
             if thread.isRunning():
                 if not thread.wait(3000):

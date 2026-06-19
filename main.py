@@ -114,10 +114,10 @@ if __name__ == '__main__':
     main_window = MainWindow(CONFIG, state_store, db_pool)
     main_window.show()
 
-    # [핵심 수정] 타이머를 main_window 객체에 귀속시켜 가비지 컬렉션 방지
+    # [최적화] CPU 부하 방지를 위해 무거운 그래프 렌더링 큐 처리 주기를 5초(5000ms)로 이완
     main_window.ui_timer = QTimer(main_window)
     main_window.ui_timer.timeout.connect(lambda: global_bus.ui_update_requested.emit())
-    main_window.ui_timer.start(500)
+    main_window.ui_timer.start(5000)
 
     workers_to_start = [
         'caen_hv', 'netio_pdu', 'fire_detector', 'voc_detector', 

@@ -1,4 +1,4 @@
-# workers/database_worker.py
+# workers/database_worker.py (전체 덮어쓰기)
 
 import logging
 import queue
@@ -26,7 +26,7 @@ class DatabaseWorker(QObject):
         """,
         'UPS': "INSERT IGNORE INTO UPS_DATA (`datetime`, `status`, `linev`, `bcharge`, `timeleft`) VALUES (?, ?, ?, ?, ?)",
         'PDU': "INSERT INTO PDU_DATA (datetime, port_idx, state, power_w, current_ma, energy_wh) VALUES (?, ?, ?, ?, ?, ?)",
-        'FIRE': "INSERT IGNORE INTO FIRE_DATA (`datetime`, `status_code`, `is_fire`, `is_fault`) VALUES (?, ?, ?, ?)",
+        'FIRE': "INSERT IGNORE INTO FIRE_DATA (`datetime`, `status_code`, `is_fire`, `is_fault`, `temperature`) VALUES (?, ?, ?, ?, ?)",
         'VOC': "INSERT IGNORE INTO VOC_DATA (`datetime`, `concentration`, `alarm_status`, `unit`) VALUES (?, ?, ?, ?)"
     }
     
@@ -79,7 +79,7 @@ class DatabaseWorker(QObject):
         "CREATE INDEX IF NOT EXISTS idx_pdu_time ON PDU_DATA (datetime);",
         "CREATE INDEX IF NOT EXISTS idx_pdu_port ON PDU_DATA (port_idx);",
         """CREATE TABLE IF NOT EXISTS FIRE_DATA (
-            `datetime` DATETIME NOT NULL PRIMARY KEY, `status_code` INT, `is_fire` BOOLEAN, `is_fault` BOOLEAN);""",
+            `datetime` DATETIME NOT NULL PRIMARY KEY, `status_code` INT, `is_fire` BOOLEAN, `is_fault` BOOLEAN, `temperature` FLOAT);""",
         "CREATE INDEX IF NOT EXISTS idx_fire_datetime ON FIRE_DATA (datetime);",
         """CREATE TABLE IF NOT EXISTS VOC_DATA (
             `datetime` DATETIME NOT NULL PRIMARY KEY, `concentration` FLOAT, `alarm_status` INT, `unit` VARCHAR(10));""",
@@ -120,6 +120,18 @@ class DatabaseWorker(QObject):
                 cursor.execute("ALTER TABLE HV_DATA ADD COLUMN board_temp FLOAT")
                 conn.commit()
                 logging.info("Successfully added 'board_temp' column to HV_DATA table.")
+
+            cursor.execute("""
+                SELECT COUNT(*) 
+                FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'FIRE_DATA' AND COLUMN_NAME = 'temperature'
+            """, (self.db_config['database'],))
+            
+            if cursor.fetchone()[0] == 0:
+                logging.warning("Column 'temperature' not found in FIRE_DATA. Altering table...")
+                cursor.execute("ALTER TABLE FIRE_DATA ADD COLUMN temperature FLOAT")
+                conn.commit()
+                logging.info("Successfully added 'temperature' column to FIRE_DATA table.")
 
             logging.info("Database tables and indexes are ready.")
             return True

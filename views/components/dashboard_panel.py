@@ -1,10 +1,9 @@
 # views/components/dashboard_panel.py (전체 덮어쓰기)
 
 from PyQt6.QtWidgets import QGroupBox, QHBoxLayout, QVBoxLayout, QGridLayout, QFrame, QLabel, QWidget
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt, pyqtSlot
 from core.event_bus import global_bus
-import time
 
 class DashboardPanel(QGroupBox):
     def __init__(self, config):
@@ -13,7 +12,6 @@ class DashboardPanel(QGroupBox):
         self.labels = {}
         self.safety_widgets = {}
         
-        # [수정 5] 라돈 상태 저장을 위한 변수 초기화
         self.latest_radon_mu = 0.0
         self.latest_radon_sigma = 0.0
         self.latest_radon_state = "Initializing"
@@ -28,29 +26,49 @@ class DashboardPanel(QGroupBox):
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(5, 5, 5, 5)
 
+        # ==========================================
+        # [디자인 개편] 모던한 플랫 디자인 안전 카드
+        # ==========================================
         safety_frame = QFrame()
-        safety_frame.setFrameShape(QFrame.Shape.StyledPanel)
-        safety_frame.setStyleSheet("background-color: #d4edda; border: 3px solid #28a745; border-radius: 10px;")
+        safety_frame.setObjectName("SafetyCard") # QSS 타겟팅을 위한 ObjectName 부여
         safety_layout = QVBoxLayout(safety_frame)
         safety_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.safety_widgets['status_lbl'] = QLabel("✅ SYSTEM\nNORMAL")
-        self.safety_widgets['status_lbl'].setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.safety_widgets['status_lbl'].setFont(QFont("Arial", 16, QFont.Weight.Bold))
-        self.safety_widgets['status_lbl'].setStyleSheet("color: #155724; border: none; background: transparent;")
+        title_lbl = QLabel("🛡️ OVERALL SAFETY")
+        title_lbl.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.safety_widgets['guide_lbl'] = QLabel("Monitoring\nActive")
+        self.safety_widgets['status_lbl'] = QLabel("✅ NORMAL")
+        self.safety_widgets['status_lbl'].setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.safety_widgets['status_lbl'].setFont(QFont("Arial", 22, QFont.Weight.Black))
+        
+        self.safety_widgets['guide_lbl'] = QLabel("Monitoring Active.")
         self.safety_widgets['guide_lbl'].setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.safety_widgets['guide_lbl'].setFont(QFont("Arial", 10))
-        self.safety_widgets['guide_lbl'].setStyleSheet("border: none; background: transparent; color: #155724;")
+        self.safety_widgets['guide_lbl'].setFont(QFont("Arial", 11, QFont.Weight.Bold))
 
         self.safety_widgets['frame'] = safety_frame
+        self.safety_widgets['_last_phase'] = "" # 렌더링 갱신 방지용 캐시
 
-        safety_layout.addWidget(QLabel("🛡️ SAFETY"))
         safety_layout.addStretch(1)
+        safety_layout.addWidget(title_lbl)
+        safety_layout.addSpacing(10)
         safety_layout.addWidget(self.safety_widgets['status_lbl'])
+        safety_layout.addSpacing(5)
         safety_layout.addWidget(self.safety_widgets['guide_lbl'])
         safety_layout.addStretch(1)
+
+        # 초기 상태 (NORMAL) QSS 세팅
+        safety_frame.setStyleSheet("""
+            QFrame#SafetyCard {
+                background-color: #27AE60; 
+                border-radius: 10px;
+            }
+            QLabel {
+                color: white; 
+                border: none;
+                background: transparent;
+            }
+        """)
 
         env_widget = QWidget()
         env_layout = QGridLayout(env_widget)
@@ -103,6 +121,7 @@ class DashboardPanel(QGroupBox):
 
                 lbl = QLabel(f"{display_name}: Wait...")
                 lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                lbl.setProperty('_last_html', "") # 캐시 초기화
                 self.labels[name] = lbl
                 
                 base_style = "font-size: 10pt;"
@@ -128,7 +147,6 @@ class DashboardPanel(QGroupBox):
     def _connect_signals(self):
         global_bus.sensor_data_updated.connect(self._on_sensor_data_updated)
         global_bus.safety_status_changed.connect(self._on_safety_status_changed)
-        # [수정 6] 라돈 카운트다운 이벤트 구독
         global_bus.radon_status_updated.connect(self._on_radon_status_updated)
 
     @pyqtSlot(str, int)
@@ -147,25 +165,37 @@ class DashboardPanel(QGroupBox):
 
     @pyqtSlot(str, str)
     def _on_safety_status_changed(self, phase, html_msg):
+        # [핵심] 상태가 변했을 때만 UI를 갱신하여 렌더링 병목 방지
+        if self.safety_widgets.get('_last_phase') == phase:
+            return
+            
         w_status = self.safety_widgets['status_lbl']
         w_guide = self.safety_widgets['guide_lbl']
         w_frame = self.safety_widgets['frame']
 
         if phase == "EMERGENCY":
-            w_status.setText("🚨 EMERGENCY 🚨")
-            w_status.setStyleSheet("color: white; background-color: red; border-radius: 5px;")
-            w_frame.setStyleSheet("background-color: #ffcccc; border: 3px solid red; border-radius: 8px;")
-            w_guide.setText("CRITICAL DANGER. EVACUATE!")
+            w_frame.setStyleSheet("""
+                QFrame#SafetyCard { background-color: #C0392B; border-radius: 10px; }
+                QLabel { color: white; border: none; background: transparent; }
+            """)
+            w_status.setText("🚨 EMERGENCY")
+            w_guide.setText("CRITICAL DANGER.\nEVACUATE!")
         elif phase == "WARNING":
+            w_frame.setStyleSheet("""
+                QFrame#SafetyCard { background-color: #F1C40F; border-radius: 10px; }
+                QLabel { color: #2C3E50; border: none; background: transparent; }
+            """)
             w_status.setText("⚠️ WARNING")
-            w_status.setStyleSheet("color: black; background-color: yellow; border-radius: 5px;")
-            w_frame.setStyleSheet("background-color: #fff3cd; border: 3px solid orange; border-radius: 8px;")
-            w_guide.setText("System Check Required.")
+            w_guide.setText("System Check\nRequired.")
         else:
-            w_status.setText("✅ SYSTEM NORMAL")
-            w_status.setStyleSheet("color: green;")
-            w_frame.setStyleSheet("background-color: #d4edda; border: 2px solid green; border-radius: 8px;")
+            w_frame.setStyleSheet("""
+                QFrame#SafetyCard { background-color: #27AE60; border-radius: 10px; }
+                QLabel { color: white; border: none; background: transparent; }
+            """)
+            w_status.setText("✅ NORMAL")
             w_guide.setText("Monitoring Active.")
+            
+        self.safety_widgets['_last_phase'] = phase
 
     @pyqtSlot(str, dict)
     def _on_sensor_data_updated(self, sensor_type, payload):
@@ -204,7 +234,6 @@ class DashboardPanel(QGroupBox):
             self._update_label("UPS_Charge", f"Charge: <b style='color:#2ca02c;'>{data.get('BCHARGE', 0.0):.1f} %</b>")
             self._update_label("UPS_TimeLeft", f"Time Left: <b style='color:#ff7f0e;'>{data.get('TIMELEFT', 0.0):.1f} min</b>")
         
-        # [수정 7] HV Board Temps 색상 적용
         elif sensor_type == 'hv_status':
             temp_parts = []
             for slot, slot_data in sorted(data.get('slots', {}).items()):
@@ -217,12 +246,15 @@ class DashboardPanel(QGroupBox):
             board_text = " | ".join(temp_parts) if temp_parts else "No Data"
             self._update_label('HV_Board_Temps', board_text)
 
-        # [수정 8] 라돈 데이터 저장
         elif sensor_type == 'radon_avg':
             self.latest_radon_mu = data.get('mu', 0.0)
             self.latest_radon_sigma = data.get('sigma', 0.0)
             self._update_radon_display()
 
     def _update_label(self, key, html_text):
+        # [핵심 최적화] 텍스트가 실제로 바뀌었을 때만 UI를 갱신하여 파싱 병목 방지
         if key in self.labels:
-            self.labels[key].setText(html_text)
+            lbl = self.labels[key]
+            if lbl.property('_last_html') != html_text:
+                lbl.setText(html_text)
+                lbl.setProperty('_last_html', html_text)

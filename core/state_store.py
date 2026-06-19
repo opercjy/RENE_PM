@@ -9,7 +9,6 @@ class StateStore(QObject):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        
         self.pointers = {}
         self.max_lens = {}
         self.plot_dirty_flags = {}
@@ -22,7 +21,11 @@ class StateStore(QObject):
         self.latest_voc_data = {'conc': 0.0, 'alarm': 0}
         self.latest_radon_data = {'mu': 0.0, 'sigma': 0.0}
         
-        self.hv_graph_counter = 0  # [핵심] HV 그래프 업데이트 주기용 카운터
+        # [최적화] 각 센서별 그래프 렌더링 주기를 1분(60초)으로 늦추기 위한 카운터
+        self.graph_counters = {
+            'daq': 0, 'radon': 0, 'mag': 0, 'th_o2': 0, 
+            'arduino': 0, 'ups': 0, 'voc': 0, 'flame': 0, 'hv': 0
+        }
 
         self._init_data_arrays()
         global_bus.sensor_data_updated.connect(self._on_sensor_data_updated)
@@ -99,13 +102,16 @@ class StateStore(QObject):
         elif sensor_type == 'raw_data': self.latest_raw_values.update(data)
 
     def _update_daq_data(self, ts, data):
-        ptr = self.pointers['daq']
-        rtd, dist = data.get('rtd', []), data.get('dist', [])
-        self.rtd_data[ptr] = [ts, rtd[0] if rtd else np.nan, rtd[1] if len(rtd) > 1 else np.nan]
-        self.dist_data[ptr] = [ts, dist[0] if dist else np.nan, dist[1] if len(dist) > 1 else np.nan]
-        self.pointers['daq'] = (ptr + 1) % self.max_lens['daq']
-        self.plot_dirty_flags.update({"daq_ls_temp_L_LS_Temp": True, "daq_ls_temp_R_LS_Temp": True,
-                                      "daq_ls_level_GdLS Level": True, "daq_ls_level_GCLS Level": True})
+        self.graph_counters['daq'] += 1
+        if self.graph_counters['daq'] >= 60:
+            ptr = self.pointers['daq']
+            rtd, dist = data.get('rtd', []), data.get('dist', [])
+            self.rtd_data[ptr] = [ts, rtd[0] if rtd else np.nan, rtd[1] if len(rtd) > 1 else np.nan]
+            self.dist_data[ptr] = [ts, dist[0] if dist else np.nan, dist[1] if len(dist) > 1 else np.nan]
+            self.pointers['daq'] = (ptr + 1) % self.max_lens['daq']
+            self.plot_dirty_flags.update({"daq_ls_temp_L_LS_Temp": True, "daq_ls_temp_R_LS_Temp": True,
+                                          "daq_ls_level_GdLS Level": True, "daq_ls_level_GCLS Level": True})
+            self.graph_counters['daq'] = 0
 
     def _update_radon_data(self, ts, data):
         mu, sigma = data.get('mu', 0.0), data.get('sigma', 0.0)
@@ -116,54 +122,71 @@ class StateStore(QObject):
         self.plot_dirty_flags["radon_Radon (μ)"] = True
 
     def _update_mag_data(self, ts, mag):
-        ptr = self.pointers['mag']
-        self.mag_data[ptr] = [ts] + mag
-        self.pointers['mag'] = (ptr + 1) % self.max_lens['mag']
-        self.plot_dirty_flags.update({"mag_Bx": True, "mag_By": True, "mag_Bz": True, "mag_|B|": True})
+        self.graph_counters['mag'] += 1
+        if self.graph_counters['mag'] >= 60:
+            ptr = self.pointers['mag']
+            self.mag_data[ptr] = [ts] + mag
+            self.pointers['mag'] = (ptr + 1) % self.max_lens['mag']
+            self.plot_dirty_flags.update({"mag_Bx": True, "mag_By": True, "mag_Bz": True, "mag_|B|": True})
+            self.graph_counters['mag'] = 0
 
     def _update_th_o2_data(self, ts, data):
-        ptr = self.pointers['th_o2']
-        self.th_o2_data[ptr] = [ts, data.get('temp', np.nan), data.get('humi', np.nan), data.get('o2', np.nan)]
-        self.pointers['th_o2'] = (ptr + 1) % self.max_lens['th_o2']
-        self.plot_dirty_flags.update({"th_o2_temp_humi_Temp(°C)": True, "th_o2_temp_humi_Humi(%)": True, "th_o2_o2_Oxygen(%)": True})
+        self.graph_counters['th_o2'] += 1
+        if self.graph_counters['th_o2'] >= 30: # 2초 주기이므로 30회 수신 시 1분
+            ptr = self.pointers['th_o2']
+            self.th_o2_data[ptr] = [ts, data.get('temp', np.nan), data.get('humi', np.nan), data.get('o2', np.nan)]
+            self.pointers['th_o2'] = (ptr + 1) % self.max_lens['th_o2']
+            self.plot_dirty_flags.update({"th_o2_temp_humi_Temp(°C)": True, "th_o2_temp_humi_Humi(%)": True, "th_o2_o2_Oxygen(%)": True})
+            self.graph_counters['th_o2'] = 0
 
     def _update_arduino_data(self, ts, data):
-        ptr = self.pointers['arduino']
-        self.arduino_data[ptr] = [ts, data.get('temp0', np.nan), data.get('humi0', np.nan), data.get('temp1', np.nan), data.get('humi1', np.nan), np.nan, np.nan, np.nan, np.nan, data.get('dist', np.nan)]
-        self.pointers['arduino'] = (ptr + 1) % self.max_lens['arduino']
-        self.plot_dirty_flags.update({"arduino_temp_humi_T1(°C)": True, "arduino_temp_humi_H1(%)": True, "arduino_temp_humi_T2(°C)": True, "arduino_temp_humi_H2(%)": True, "arduino_dist_Dist(cm)": True})
+        self.graph_counters['arduino'] += 1
+        if self.graph_counters['arduino'] >= 30:
+            ptr = self.pointers['arduino']
+            self.arduino_data[ptr] = [ts, data.get('temp0', np.nan), data.get('humi0', np.nan), data.get('temp1', np.nan), data.get('humi1', np.nan), np.nan, np.nan, np.nan, np.nan, data.get('dist', np.nan)]
+            self.pointers['arduino'] = (ptr + 1) % self.max_lens['arduino']
+            self.plot_dirty_flags.update({"arduino_temp_humi_T1(°C)": True, "arduino_temp_humi_H1(%)": True, "arduino_temp_humi_T2(°C)": True, "arduino_temp_humi_H2(%)": True, "arduino_dist_Dist(cm)": True})
+            self.graph_counters['arduino'] = 0
 
     def _update_ups_data(self, ts, data):
         self.latest_ups_status = data
-        ptr = self.pointers['ups']
-        self.ups_data[ptr] = [ts, data.get('LINEV', 0.0), data.get('BCHARGE', 0.0), data.get('TIMELEFT', 0.0)]
-        self.pointers['ups'] = (ptr + 1) % self.max_lens['ups']
-        self.plot_dirty_flags.update({"ups_linev": True, "ups_bcharge": True, "ups_timeleft": True})
+        self.graph_counters['ups'] += 1
+        if self.graph_counters['ups'] >= 12: # 5초 주기이므로 12회 수신 시 1분
+            ptr = self.pointers['ups']
+            self.ups_data[ptr] = [ts, data.get('LINEV', 0.0), data.get('BCHARGE', 0.0), data.get('TIMELEFT', 0.0)]
+            self.pointers['ups'] = (ptr + 1) % self.max_lens['ups']
+            self.plot_dirty_flags.update({"ups_linev": True, "ups_bcharge": True, "ups_timeleft": True})
+            self.graph_counters['ups'] = 0
 
     def _update_fire_data(self, ts, data):
         self.latest_fire_data = data
-        ptr = self.pointers['flame']
-        self.flame_data[ptr] = [ts, data.get('status_code', 0)]
-        self.pointers['flame'] = (ptr + 1) % self.max_lens['flame']
-        self.plot_dirty_flags["flame_trend_Flame Level"] = True
+        self.graph_counters['flame'] += 1
+        if self.graph_counters['flame'] >= 60:
+            ptr = self.pointers['flame']
+            self.flame_data[ptr] = [ts, data.get('status_code', 0)]
+            self.pointers['flame'] = (ptr + 1) % self.max_lens['flame']
+            self.plot_dirty_flags["flame_trend_Flame Level"] = True
+            self.graph_counters['flame'] = 0
 
     def _update_voc_data(self, ts, data):
         self.latest_voc_data = data
-        ptr = self.pointers['voc']
-        self.voc_data[ptr] = [ts, data.get('conc', 0.0)]
-        self.pointers['voc'] = (ptr + 1) % self.max_lens['voc']
-        self.plot_dirty_flags["voc_trend_VOC"] = True
+        self.graph_counters['voc'] += 1
+        if self.graph_counters['voc'] >= 30: # 2초 주기이므로 30회 수신 시 1분
+            ptr = self.pointers['voc']
+            self.voc_data[ptr] = [ts, data.get('conc', 0.0)]
+            self.pointers['voc'] = (ptr + 1) % self.max_lens['voc']
+            self.plot_dirty_flags["voc_trend_VOC"] = True
+            self.graph_counters['voc'] = 0
 
     def _update_hv_data(self, ts, data):
-        """[핵심 추가] 최신값 갱신 및 1분마다 그래프 배열(hv_graph_data) 업데이트"""
         for slot, slot_data in data.get('slots', {}).items():
             board_temp = slot_data.get('board_temp')
             self.latest_board_temps[slot] = board_temp
             for channel, params in slot_data.get('channels', {}).items():
                 self.latest_hv_values[(slot, channel)] = params
 
-        self.hv_graph_counter += 1
-        if self.hv_graph_counter >= 60:
+        self.graph_counters['hv'] += 1
+        if self.graph_counters['hv'] >= 60:
             current_time = time.time()
             for (s, c), p in self.latest_hv_values.items():
                 if s in self.hv_graph_data:
@@ -176,4 +199,4 @@ class StateStore(QObject):
                 self.pointers['hv_graph'][s] = (self.pointers['hv_graph'].get(s, 0) + 1) % self.max_lens['hv_graph']
                 self.plot_dirty_flags[f"hv_slot_{s}"] = True
             
-            self.hv_graph_counter = 0
+            self.graph_counters['hv'] = 0

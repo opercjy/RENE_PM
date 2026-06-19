@@ -46,12 +46,13 @@ class SafetyPanel(QWidget):
         graph_group = QGroupBox("📈 Safety Trends Analysis")
         graph_layout = QVBoxLayout(graph_group)
         
-        self.voc_plot = pg.PlotWidget(title="🧪 VOC Concentration (ppm)")
+        # [핵심 추가] bottom x축에 DateAxisItem 지정
+        self.voc_plot = pg.PlotWidget(title="🧪 VOC Concentration (ppm)", axisItems={'bottom': pg.DateAxisItem(orientation='bottom')})
         self.voc_plot.setBackground('w')
         self.voc_plot.showGrid(x=True, y=True, alpha=0.3)
         self.curve_voc = self.voc_plot.plot(pen=pg.mkPen('b', width=2), name="VOC")
         
-        self.flame_plot = pg.PlotWidget(title="🔥 Flame Sensor Level")
+        self.flame_plot = pg.PlotWidget(title="🔥 Flame Sensor Level", axisItems={'bottom': pg.DateAxisItem(orientation='bottom')})
         self.flame_plot.setBackground('w')
         self.flame_plot.showGrid(x=True, y=True, alpha=0.3)
         self.curve_flame = self.flame_plot.plot(pen=pg.mkPen('r', width=2), name="Flame Level")
