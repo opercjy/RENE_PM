@@ -21,13 +21,12 @@ class EnvPanel(QWidget):
         container.setFont(QFont("Arial", 12, QFont.Weight.Bold))
         grid_layout = QGridLayout(container)
         
-        # [수정 1] 기존 그래프 항목 유지
         self._create_plot_group(grid_layout, 0, 0, "LS Temp (°C)", "°C", [("L_LS_Temp", "#1f77b4"), ("R_LS_Temp", "#ff7f0e")])
         self._create_plot_group(grid_layout, 0, 1, "TH/O2", "Value", [("Temp(°C)", "#1f77b4"), ("Humi(%)", "#ff7f0e"), ("Oxygen(%)", "#2ca02c")])
         self._create_plot_group(grid_layout, 0, 2, "Magnetometer", "mG", [("Bx", "#d62728"), ("By", "#2ca02c"), ("Bz", "#1f77b4"), ("|B|", "#000000")])
         self._create_plot_group(grid_layout, 1, 0, "LS Level (mm)", "mm", [("GdLS Level", "#1f77b4"), ("GCLS Level", "#ff7f0e")])
         
-        # [수정 2] 아두이노 플롯에 두 번째 센서의 범례(Legend)와 라인 색상(T2: 빨강, H2: 보라) 추가
+        # [수정] 아두이노 플롯에 두 번째 센서의 범례(Legend)와 라인 색상(T2: 빨강, H2: 보라) 추가
         self._create_plot_group(grid_layout, 1, 1, "Arduino", "Value", [
             ("T1(°C)", "#1f77b4"), ("H1(%)", "#ff7f0e"), 
             ("T2(°C)", "#d62728"), ("H2(%)", "#9467bd"), 
@@ -113,7 +112,7 @@ class EnvPanel(QWidget):
                     self.curves["T1(°C)"].setData(x=ard[v_idx][:, 0], y=ard[v_idx][:, 1], connect='finite')
                     self.curves["H1(%)"].setData(x=ard[v_idx][:, 0], y=ard[v_idx][:, 2], connect='finite')
                     
-                    # [수정 3] StateStore에 배열되어 있는 두 번째 센서의 인덱스(3, 4)를 가져와서 렌더링
+                    # [수정] StateStore에 배열되어 있는 두 번째 센서의 인덱스(3, 4)를 가져와서 렌더링
                     self.curves["T2(°C)"].setData(x=ard[v_idx][:, 0], y=ard[v_idx][:, 3], connect='finite')
                     self.curves["H2(%)"].setData(x=ard[v_idx][:, 0], y=ard[v_idx][:, 4], connect='finite')
                     

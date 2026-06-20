@@ -1,4 +1,4 @@
-# workers/daq_worker.py
+# workers/daq_worker.py (전체 덮어쓰기)
 
 import time
 import numpy as np
@@ -10,18 +10,13 @@ from nidaqmx.constants import (RTDType, ResistanceConfiguration, TerminalConfigu
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
 class DaqWorker(QObject):
-    """
-    [NI-DAQmx 수집 전담 워커]
-    UI 로직이 배제된 순수 데이터 생산자.
-    Numpy 연산을 통해 평균값을 산출하고 pyqtSignal로 데이터를 직렬화하여 송출한다.
-    """
     avg_data_ready = pyqtSignal(float, dict)
     raw_data_ready = pyqtSignal(dict)
     error_occurred = pyqtSignal(str)
 
     def __init__(self, daq_config, data_queue: queue.Queue):
         super().__init__()
-        self._is_running = True
+        self._is_running = False
         self.config = daq_config
         self.data_queue = data_queue
         self.sampling_rate = self.config.get('sampling_rate', 1000)
@@ -55,7 +50,9 @@ class DaqWorker(QObject):
 
     @pyqtSlot()
     def run(self):
+        self._is_running = True
         if not self._find_modules_by_sn(): return
+        
         while self._is_running:
             try:
                 self.task = nidaqmx.Task()
@@ -65,7 +62,6 @@ class DaqWorker(QObject):
             except nidaqmx.errors.DaqError as e:
                 if not self._is_running: break
                 if e.error_code == -200479:
-                    logging.info("DAQ read was correctly interrupted by task closure.")
                     break
                 self.error_occurred.emit(f"NI-DAQ Error: {e}. Retrying in 10 seconds...")
                 time.sleep(10)
@@ -75,7 +71,9 @@ class DaqWorker(QObject):
                 break
             finally:
                 if self.task is not None:
-                    self.task.close()
+                    try:
+                        self.task.close()
+                    except: pass
                     self.task = None
                     logging.info("DAQ task closed in finally block.")
     
@@ -172,13 +170,5 @@ class DaqWorker(QObject):
             
     @pyqtSlot()
     def stop(self):
-        logging.info("DAQWorker stop method called.")
+        # [핵심] 절대 여기서 메인 스레드가 task.close()를 쥐어뜯지 않습니다.
         self._is_running = False
-        if self.task is not None:
-            try:
-                logging.info("Explicitly closing DAQ task from stop() method...")
-                self.task.close()
-                self.task = None
-                logging.info("DAQ task closed successfully from stop() method.")
-            except Exception as e:
-                logging.error(f"Error while explicitly closing DAQ task: {e}")

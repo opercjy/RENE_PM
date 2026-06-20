@@ -129,8 +129,9 @@ if __name__ == '__main__':
     def on_about_to_quit():
         logging.info("Application shutting down...")
         worker_manager.stop_all()
+        # [핵심] DB 워커 역시 강제 종료가 아닌 우아한 깃발 내리기로 유도
         if db_worker and db_thread:
-            QMetaObject.invokeMethod(db_worker, "stop", Qt.ConnectionType.QueuedConnection)
+            db_worker._is_running = False
             db_thread.quit()
             db_thread.wait(3000)
 

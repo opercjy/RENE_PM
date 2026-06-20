@@ -25,7 +25,6 @@ class WorkerManager(QObject):
         self.threads = {}
         self.hv_db_push_counter = 0
         
-        # [핵심] UI를 멈추게 만들던 모든 Direct Call(forward 함수) 삭제 완료
         global_bus.cmd_toggle_worker.connect(self.toggle_worker)
 
     def toggle_worker(self, name, enable):
@@ -37,31 +36,33 @@ class WorkerManager(QObject):
             if name in self.threads:
                 global_bus.system_log_message.emit("WARNING", f"[{name}] 워커 스레드 종료 및 리소스 반환 중...")
                 thread, worker = self.threads[name]
-                stop_method = 'stop' if hasattr(worker, 'stop') else 'stop_worker'
-                
-                if name in ['daq', 'magnetometer']:
-                    worker._is_running = False
-                    if hasattr(worker, stop_method):
-                        getattr(worker, stop_method)()
-                else:
-                    if hasattr(worker, stop_method):
-                        QMetaObject.invokeMethod(worker, stop_method, Qt.ConnectionType.QueuedConnection)
-                
-                thread.quit()
-                if not thread.wait(3000):
-                    thread.terminate()
-                
+                self._stop_thread_safely(name, thread, worker)
                 del self.threads[name]
                 global_bus.system_log_message.emit("INFO", f"[{name}] 워커 스레드 폐기 완료.")
                 global_bus.device_connection_changed.emit(name, False)
 
+    def _stop_thread_safely(self, name, thread, worker):
+        worker._is_running = False
+        
+        # [핵심 방어선] 메인 스레드가 직접 worker.stop()을 호출하지 않고 해당 스레드의 이벤트 큐로 위임(QueuedConnection)
+        stop_method = 'stop' if hasattr(worker, 'stop') else 'stop_worker'
+        if hasattr(worker, stop_method):
+            QMetaObject.invokeMethod(worker, stop_method, Qt.ConnectionType.QueuedConnection)
+            
+        thread.quit()
+        if not thread.wait(3000):
+            logging.warning(f"[{name}] Thread hung. Forcing termination.")
+            thread.terminate()
+            thread.wait(1000)
+
     def start_worker(self, name):
         if name in self.threads: return
+        
         worker_map = {
-            'daq': (DaqWorker, True), 'radon': (RadonWorker, False), 'magnetometer': (MagnetometerWorker, True),
-            'th_o2': (ThO2Worker, False), 'arduino': (ArduinoWorker, False), 'caen_hv': (HVWorker, False), 
-            'ups': (UPSWorker, False), 'netio_pdu': (PDUWorker, False), 'fire_detector': (FireWorker, False), 
-            'voc_detector': (PidWorker, False)
+            'daq': (DaqWorker, True), 'radon': (RadonWorker, True), 'magnetometer': (MagnetometerWorker, True),
+            'th_o2': (ThO2Worker, True), 'arduino': (ArduinoWorker, True), 'caen_hv': (HVWorker, False), 
+            'ups': (UPSWorker, False), 'netio_pdu': (PDUWorker, False), 'fire_detector': (FireWorker, True), 
+            'voc_detector': (PidWorker, True)
         }
         if name not in worker_map: return
         WClass, use_run = worker_map[name]
@@ -108,11 +109,8 @@ class WorkerManager(QObject):
             worker.connection_status.connect(lambda s: global_bus.device_connection_changed.emit('caen_hv', s))
             worker.control_command_status.connect(lambda msg: global_bus.system_log_message.emit("INFO", msg))
             worker.setpoints_ready.connect(global_bus.hv_setpoints_ready.emit)
-            
-            # [핵심] 시그널과 워커 슬롯을 1:1로 직접 연결하여 완벽한 비동기 큐잉 달성
             global_bus.request_hv_setpoints.connect(worker.fetch_setpoints)
             global_bus.cmd_hv_control.connect(worker.execute_control_command)
-            
         elif name == 'daq':
             worker.avg_data_ready.connect(lambda ts, d: global_bus.sensor_data_updated.emit('daq_avg', {'ts': ts, 'data': d}))
             worker.raw_data_ready.connect(lambda d: global_bus.sensor_data_updated.emit('raw_data', {'ts': self._now(), 'data': d}))
@@ -140,7 +138,6 @@ class WorkerManager(QObject):
             worker.sig_log_message.connect(global_bus.system_log_message.emit)
             if hasattr(worker, 'sig_queue_data'):
                 worker.sig_queue_data.connect(lambda d: self.db_queue.put(d))
-            # [핵심] PDU 역시 비동기 다이렉트 연결
             global_bus.cmd_pdu_control_single.connect(worker.control_single_port)
             global_bus.cmd_pdu_control_all.connect(worker.control_all_ports)
 
@@ -149,19 +146,5 @@ class WorkerManager(QObject):
     def stop_all(self):
         for name, (thread, worker) in list(self.threads.items()):
             if thread.isRunning() and not sip.isdeleted(worker):
-                stop_method = 'stop' if hasattr(worker, 'stop') else 'stop_worker'
-                if name in ['daq', 'magnetometer']:
-                    worker._is_running = False
-                    if hasattr(worker, stop_method): getattr(worker, stop_method)()
-                else:
-                    if hasattr(worker, stop_method):
-                        QMetaObject.invokeMethod(worker, stop_method, Qt.ConnectionType.QueuedConnection)
-                thread.quit()
-
-        for name, (thread, worker) in list(self.threads.items()):
-            if thread.isRunning():
-                if not thread.wait(3000):
-                    global_bus.system_log_message.emit("WARNING", f"Thread '{name}' hung. Forcing termination.")
-                    thread.terminate()
-                    thread.wait(1000)
+                self._stop_thread_safely(name, thread, worker)
         self.threads.clear()

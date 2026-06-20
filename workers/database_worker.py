@@ -4,16 +4,9 @@ import logging
 import queue
 import mariadb
 import time
-from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer
+from PyQt6.QtCore import QObject, pyqtSlot
 
 class DatabaseWorker(QObject):
-    """
-    [데이터 영속성 전문가]
-    메모리 큐에 쌓인 센서 데이터를 주기적으로 긁어내어 DB에 일괄(Batch) INSERT 한다.
-    """
-    status_update = pyqtSignal(str)
-    error_occurred = pyqtSignal(str)
-    
     SQL_INSERT = {
         'DAQ': "INSERT IGNORE INTO LS_DATA (`datetime`, `RTD_1`, `RTD_2`, `DIST_1`, `DIST_2`) VALUES (?, ?, ?, ?, ?)",
         'RADON': "INSERT IGNORE INTO RADON_DATA (`datetime`, `mu`, `sigma`) VALUES (?, ?, ?)",
@@ -91,9 +84,7 @@ class DatabaseWorker(QObject):
         self.db_pool = db_pool
         self.db_config = db_config
         self.data_queue = data_queue
-        self._is_running = True
-        self.batch_timer = QTimer(self)
-        self.batch_timer.timeout.connect(self.process_batch)
+        self._is_running = False
 
     def _setup_tables(self):
         conn = None
@@ -116,10 +107,8 @@ class DatabaseWorker(QObject):
             """, (self.db_config['database'],))
             
             if cursor.fetchone()[0] == 0:
-                logging.warning("Column 'board_temp' not found in HV_DATA. Altering table...")
                 cursor.execute("ALTER TABLE HV_DATA ADD COLUMN board_temp FLOAT")
                 conn.commit()
-                logging.info("Successfully added 'board_temp' column to HV_DATA table.")
 
             cursor.execute("""
                 SELECT COUNT(*) 
@@ -128,15 +117,12 @@ class DatabaseWorker(QObject):
             """, (self.db_config['database'],))
             
             if cursor.fetchone()[0] == 0:
-                logging.warning("Column 'temperature' not found in FIRE_DATA. Altering table...")
                 cursor.execute("ALTER TABLE FIRE_DATA ADD COLUMN temperature FLOAT")
                 conn.commit()
-                logging.info("Successfully added 'temperature' column to FIRE_DATA table.")
 
             logging.info("Database tables and indexes are ready.")
             return True
         except mariadb.Error as e:
-            self.error_occurred.emit(f"DB Table/Index Setup Error: {e}")
             logging.error(f"DB Table/Index Setup Error: {e}")
             return False
         finally:
@@ -146,14 +132,28 @@ class DatabaseWorker(QObject):
     def run(self):
         if not self.db_pool: return
         if not self._setup_tables():
-            QTimer.singleShot(10000, self.run)
+            time.sleep(10)
+            self.run()
             return
-        self.batch_timer.start(60 * 1000)
-        logging.info("Database worker started, using shared connection pool.")
+        
+        self._is_running = True
+        logging.info("Database worker background loop started, using shared connection pool.")
+        
+        # [핵심] QTimer를 제거하고 무한 루프로 변경. 
+        # 60초마다 데이터를 처리하지만, 종료 깃발(_is_running)은 1초 간격으로 감시하여 즉각 종료 가능하게 함.
+        while self._is_running:
+            for _ in range(60):
+                if not self._is_running: break
+                time.sleep(1.0)
+            
+            if not self._is_running: break
+            self.process_batch()
+        
+        logging.info("Processing remaining items before stopping DB worker.")
+        self.process_batch()
+        logging.info("DB worker stopped.")
 
-    @pyqtSlot()
     def process_batch(self):
-        if not self._is_running: return
         batch_size = self.data_queue.qsize()
         if batch_size == 0: return
 
@@ -174,8 +174,6 @@ class DatabaseWorker(QObject):
                         elif data_payload: 
                             batch[data_type].append(data_payload)
                             processed_record_count += 1
-                        else:
-                             logging.debug(f"Received empty payload for type {data_type}")
                 self.data_queue.task_done()
             except queue.Empty: break
         
@@ -200,7 +198,3 @@ class DatabaseWorker(QObject):
     @pyqtSlot()
     def stop(self):
         self._is_running = False
-        self.batch_timer.stop()
-        logging.info("Processing remaining items before stopping DB worker.")
-        self.process_batch()
-        logging.info("DB worker stopped.")
