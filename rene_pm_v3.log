@@ -1,32 +1,30 @@
-2026-06-19 17:21:55,529 - INFO - [MainThread] - ============================================================
-2026-06-19 17:21:55,530 - INFO - [MainThread] - RENE-PM v3.0 (Event-Driven Architecture) Starting
-2026-06-19 17:21:55,530 - INFO - [MainThread] - ============================================================
-2026-06-19 17:21:55,572 - INFO - [MainThread] - Database connection pool created successfully.
-2026-06-19 17:21:55,592 - INFO - [Dummy-1] - Database tables and indexes are ready.
-2026-06-19 17:21:55,592 - INFO - [Dummy-1] - Database worker started, using shared connection pool.
-2026-06-19 17:21:55,951 - INFO - [Dummy-2] - Connecting to CAEN HV at 192.168.0.39...
-2026-06-19 17:21:55,953 - INFO - [Dummy-3] - RadonWorker started on /dev/ttyUSB0
-2026-06-19 17:21:55,955 - INFO - [Dummy-4] - FireWorker (FS24X Plus) started on /dev/ttyUSB1
-2026-06-19 17:21:55,955 - INFO - [Dummy-5] - PID Worker (RAEGuard2) started on /dev/ttyUSB3
-2026-06-19 17:21:55,956 - INFO - [Dummy-6] - TH/O2 worker started with 2000ms interval.
-2026-06-19 17:21:56,026 - INFO - [Dummy-7] - [Magnetometer] Attempting to connect...
-2026-06-19 17:21:56,078 - INFO - [Dummy-8] - Activated module LS_Temperature (SN: 02504298) as cDAQ2Mod3
-2026-06-19 17:21:56,078 - INFO - [Dummy-8] - Activated module LS_Level (SN: 024F0BD5) as cDAQ2Mod1
-2026-06-19 17:21:56,085 - INFO - [Dummy-2] - Successfully connected to CAEN HV system.
-2026-06-19 17:21:57,544 - INFO - [Dummy-7] - [Magnetometer] Successfully connected. ID: Metrolab Technology SA,TFM1186,0003055,elA3-prA1-fw3.1
-2026-06-19 17:22:55,848 - INFO - [Dummy-1] - Successfully inserted batch of 90 records.
-2026-06-19 17:23:55,818 - INFO - [Dummy-1] - Successfully inserted batch of 190 records.
-2026-06-19 17:24:55,819 - INFO - [Dummy-1] - Successfully inserted batch of 190 records.
-2026-06-19 17:25:55,847 - INFO - [Dummy-1] - Successfully inserted batch of 190 records.
-2026-06-19 17:26:55,812 - INFO - [Dummy-1] - Successfully inserted batch of 189 records.
-2026-06-19 17:27:55,821 - INFO - [Dummy-1] - Successfully inserted batch of 191 records.
-2026-06-19 17:28:55,859 - INFO - [Dummy-1] - Successfully inserted batch of 190 records.
-2026-06-19 17:29:55,813 - INFO - [Dummy-1] - Successfully inserted batch of 189 records.
-2026-06-19 17:30:55,822 - INFO - [Dummy-1] - Successfully inserted batch of 191 records.
-2026-06-19 17:31:55,793 - INFO - [Dummy-1] - Successfully inserted batch of 183 records.
-2026-06-19 17:32:55,818 - INFO - [Dummy-1] - Successfully inserted batch of 191 records.
-2026-06-19 17:33:55,864 - INFO - [Dummy-1] - Successfully inserted batch of 191 records.
-2026-06-19 17:34:55,820 - INFO - [Dummy-1] - Successfully inserted batch of 189 records.
-2026-06-19 17:35:55,776 - INFO - [Dummy-1] - Successfully inserted batch of 190 records.
-2026-06-19 17:36:55,783 - INFO - [Dummy-1] - Successfully inserted batch of 190 records.
-2026-06-19 17:37:55,823 - INFO - [Dummy-1] - Successfully inserted batch of 190 records.
+2026-06-20 17:12:52,590 - INFO - [MainThread] - ============================================================
+2026-06-20 17:12:52,590 - INFO - [MainThread] - RENE-PM v3.0 (Event-Driven Architecture) Starting
+2026-06-20 17:12:52,590 - INFO - [MainThread] - ============================================================
+2026-06-20 17:12:52,632 - INFO - [MainThread] - Database connection pool created successfully.
+2026-06-20 17:12:52,651 - INFO - [Dummy-1] - Database tables and indexes are ready.
+2026-06-20 17:12:52,651 - INFO - [Dummy-1] - Database worker started, using shared connection pool.
+2026-06-20 17:12:53,018 - INFO - [Dummy-2] - Connecting to CAEN HV at 192.168.0.39...
+2026-06-20 17:12:53,018 - INFO - [Dummy-3] - FireWorker (FS24X Plus) started on /dev/sensor_flame
+2026-06-20 17:12:53,018 - INFO - [Dummy-4] - PID Worker (RAEGuard2) started on /dev/sensor_voc
+2026-06-20 17:12:53,019 - INFO - [Dummy-5] - RadonWorker started on /dev/sensor_radon
+2026-06-20 17:12:53,021 - INFO - [Dummy-6] - TH/O2 worker started with 2000ms interval.
+2026-06-20 17:12:53,021 - INFO - [Dummy-7] - Arduino worker started with 2000ms interval.
+2026-06-20 17:12:53,144 - INFO - [Dummy-2] - Successfully connected to CAEN HV system.
+2026-06-20 17:12:53,145 - INFO - [Dummy-8] - Activated module LS_Temperature (SN: 02504298) as cDAQ2Mod3
+2026-06-20 17:12:53,145 - INFO - [Dummy-8] - Activated module LS_Level (SN: 024F0BD5) as cDAQ2Mod1
+2026-06-20 17:12:54,609 - INFO - [Dummy-9] - [Magnetometer] Successfully connected. ID: Metrolab Technology SA,TFM1186,0003055,elA3-prA1-fw3.1
+2026-06-20 17:13:52,776 - INFO - [Dummy-1] - Successfully inserted batch of 89 records.
+2026-06-20 17:14:03,444 - WARNING - [MainThread] - Arduino parsing error: could not convert string to float: '50.temp0:23.10'. Raw: 'temp0:22.90,humi0:53.10,temp1:22.60,humi1:50.temp0:23.10,humi0:52.80,temp1:23.40,humi1:49.10,dist:52.0'
+2026-06-20 17:14:52,823 - INFO - [Dummy-1] - Successfully inserted batch of 191 records.
+2026-06-20 17:15:52,816 - INFO - [Dummy-1] - Successfully inserted batch of 191 records.
+2026-06-20 17:16:52,816 - INFO - [Dummy-1] - Successfully inserted batch of 191 records.
+2026-06-20 17:17:52,811 - INFO - [Dummy-1] - Successfully inserted batch of 191 records.
+2026-06-20 17:18:44,320 - INFO - [MainThread] - Application shutting down...
+2026-06-20 17:18:44,320 - INFO - [MainThread] - DAQWorker stop method called.
+2026-06-20 17:18:44,321 - INFO - [MainThread] - Explicitly closing DAQ task from stop() method...
+2026-06-20 17:18:44,321 - INFO - [Dummy-2] - CAEN device closed.
+2026-06-20 17:18:44,321 - INFO - [MainThread] - DAQ task closed successfully from stop() method.
+2026-06-20 17:18:44,371 - INFO - [Dummy-7] - Arduino worker stopped.
+2026-06-20 17:18:45,473 - INFO - [Dummy-1] - Processing remaining items before stopping DB worker.
+2026-06-20 17:18:45,473 - INFO - [Dummy-1] - DB worker stopped.

@@ -31,9 +31,6 @@ class PidWorker(QObject):
                 baudrate=self.config.get('baudrate', 9600), 
                 parity='N', stopbits=1, bytesize=8, timeout=0.5
             )
-            if not self.client.connect():
-                raise ConnectionError(f"Failed to connect to {self.config['port']}")
-            
             self._is_running = True
             self.timer.start(self.interval)
             logging.info(f"PID Worker (RAEGuard2) started on {self.config['port']}")
@@ -42,16 +39,18 @@ class PidWorker(QObject):
 
     def measure(self):
         if not self._is_running: return
+        ts = time.time()
         try:
-            ts = time.time()
+            if not self.client.connect():
+                raise ConnectionError("Port disconnected")
+                
             slave_id = self.config.get('slave_id', 50)
-            
             res_conc = self.client.read_holding_registers(address=8, count=2, slave=slave_id)
 
             if res_conc.isError():
                 raise ModbusException("Modbus Read Error at Address 8")
 
-            if self.consecutive_errors >= 10:
+            if self.consecutive_errors > 0:
                 logging.info("PID Detector (VOC) 통신이 복구되었습니다.")
             self.consecutive_errors = 0
 
@@ -63,35 +62,29 @@ class PidWorker(QObject):
             warn_limit = self.config.get('thresholds', {}).get('warning_ppm', 10.0)
             crit_limit = self.config.get('thresholds', {}).get('critical_ppm', 50.0)
             
-            if concentration >= crit_limit:
-                ui_alarm_level = 2
-            elif concentration >= warn_limit:
-                ui_alarm_level = 1
+            if concentration >= crit_limit: ui_alarm_level = 2
+            elif concentration >= warn_limit: ui_alarm_level = 1
             
-            data = {
-                'voc_detector': {
-                    'conc': concentration,
-                    'alarm': ui_alarm_level, 
-                    'unit': 'ppm'
-                }
-            }
-            
-            self.data_ready.emit(data)
+            self.data_ready.emit({'voc_detector': {'conc': concentration, 'alarm': ui_alarm_level, 'unit': 'ppm'}})
             self._enqueue_db_data(ts, concentration, ui_alarm_level)
 
         except Exception as e:
             self.consecutive_errors += 1
-            if self.consecutive_errors == 10:
-                self.error_occurred.emit(f"PID Detector 통신 단절 (10회 연속 응답 없음).")
-                self.data_ready.emit({
-                    'voc_detector': {
-                        'conc': 0.0, 'alarm': -1, 'unit': 'ppm', 'msg': 'COMM FAULT'
-                    }
-                })
+            if self.consecutive_errors % 10 == 0:
+                self.error_occurred.emit(f"PID Detector 통신 단절 ({self.consecutive_errors}회 연속 실패).")
+            
+            # 죽은 포트 해제
+            if self.client:
+                self.client.close()
+
+            # 시계열 기아 상태 방지
+            self.data_ready.emit({'voc_detector': {'conc': 0.0, 'alarm': -1, 'unit': 'ppm', 'msg': 'COMM FAULT'}})
+            self._enqueue_db_data(ts, None, -1)
 
     def _enqueue_db_data(self, ts, conc, alarm):
         dt_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))
-        self.data_queue.put({'type': 'VOC', 'data': (dt_str, round(conc, 3), alarm, 'ppm')})
+        conc_val = round(conc, 3) if conc is not None else None
+        self.data_queue.put({'type': 'VOC', 'data': (dt_str, conc_val, alarm, 'ppm')})
 
     @pyqtSlot()
     def stop_worker(self):

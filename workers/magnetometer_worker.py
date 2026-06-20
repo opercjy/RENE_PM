@@ -29,28 +29,23 @@ class MagnetometerWorker(QObject):
         try:
             numeric_part = response_str.strip().split(' ')[0]
             return float(numeric_part) * 10_000_000
-        except (ValueError, IndexError) as e:
-            return 0.0
+        except (ValueError, IndexError):
+            return float('nan')
 
     @pyqtSlot()
     def run(self):
         self._is_running = True
         
-        try:
-            self.rm = pyvisa.ResourceManager(self.config.get('library_path', '@py'))
-        except Exception as e:
-            self.error_occurred.emit(f"PyVISA ResourceManager Error: {e}")
-            self._is_running = False
-            return
-
         while self._is_running:
             try:
-                logging.info("[Magnetometer] Attempting to connect...")
+                # [핵심] 연결 유실 시 ResourceManager 자체를 재생성하여 libusb 메모리 오염 세탁
+                if self.rm is None:
+                    self.rm = pyvisa.ResourceManager(self.config.get('library_path', '@py'))
+                
                 self.inst = self.rm.open_resource(self.config['resource_name'], timeout=3000)
                 self.inst.read_termination = '\n'
                 self.inst.write_termination = '\n'
                 
-                # [복원] 진단 스크립트와 100% 동일한 SCPI 하드웨어 초기화 명령어
                 self.inst.write('*RST')
                 time.sleep(1.5)
                 
@@ -79,22 +74,27 @@ class MagnetometerWorker(QObject):
                     sleep_time = max(0, self.interval - elapsed)
                     time.sleep(sleep_time)
 
-            except pyvisa.errors.VisaIOError as e:
-                if not self._is_running: break
-                logging.error(f"[Magnetometer] I/O Error: {e}")
-                self.error_occurred.emit(f"Magnetometer I/O Error: {e}")
-                if self.inst:
-                    try: self.inst.close()
-                    except: pass
-                time.sleep(5.0)
-                
             except Exception as e:
                 if not self._is_running: break
                 logging.error(f"[Magnetometer] Fatal Error: {e}")
-                self.error_occurred.emit(f"Magnetometer Fatal Error: {e}")
+                self.error_occurred.emit(f"Magnetometer Error: {e}")
+                
+                # [핵심] 에러 발생 시 모든 객체를 완전히 파괴하여 메모리 반환
                 if self.inst:
                     try: self.inst.close()
                     except: pass
+                if self.rm:
+                    try: self.rm.close()
+                    except: pass
+                self.inst = None
+                self.rm = None
+                
+                # 에러 상황에서도 StateStore의 타이머가 굴러가도록 NaN 방출
+                ts = time.time()
+                nan_mag = [float('nan')] * 4
+                self.raw_data_ready.emit({'mag': nan_mag})
+                self._process_and_enqueue(ts, nan_mag)
+                
                 time.sleep(5.0)
 
     def _process_and_enqueue(self, ts, raw_data):
@@ -102,18 +102,19 @@ class MagnetometerWorker(QObject):
             self.samples[i].append(raw_data[i])
         
         if len(self.samples[0]) >= int(60 / self.interval):
-            avg_for_gui = [float(np.mean(ch)) for ch in self.samples]
+            # np.nanmean을 사용하여 에러(NaN) 기간 중 수신된 정상 데이터만 평균 산출
+            avg_for_gui = [float(np.nanmean(ch)) if not np.all(np.isnan(ch)) else float('nan') for ch in self.samples]
             self.avg_data_ready.emit(time.time(), avg_for_gui)
-            self._enqueue_db_data(ts, raw_data)
+            self._enqueue_db_data(ts, avg_for_gui) # raw_data 대신 1분 평균값 적재
             self.samples = [[] for _ in range(4)]
 
     def _enqueue_db_data(self, ts, data):
         dt_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))
-        self.data_queue.put({'type': 'MAG', 'data': (dt_str, round(data[0],2), round(data[1],2), round(data[2],2), round(data[3],2))})
+        d_out = [round(x, 2) if not math.isnan(x) else None for x in data]
+        self.data_queue.put({'type': 'MAG', 'data': (dt_str, d_out[0], d_out[1], d_out[2], d_out[3])})
 
     @pyqtSlot()
     def stop(self):
-        logging.info("MagnetometerWorker stop method called.")
         self._is_running = False
         if self.inst:
             try: self.inst.close()

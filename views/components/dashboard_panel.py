@@ -84,7 +84,6 @@ class DashboardPanel(QGroupBox):
             ("🎛️ HV System", ["HV_Board_Temps"]) 
         ]
 
-        # 불꽃 감지기 라인 색을 연한 주황(#e67e22)으로, 가스 감지기를 파란색(#1f77b4)으로 일치시킴
         series_color_map = {
             "L_LS_Temp": "#1f77b4", "R_LS_Temp": "#ff7f0e",
             "GdLS_level": "#1f77b4", "GCLS_level": "#ff7f0e",
@@ -228,6 +227,9 @@ class DashboardPanel(QGroupBox):
                 d = data['arduino']
                 if 'temp0' in d and d['temp0'] is not None: self._update_label("Temp1", f"Temp1: {d['temp0']:.2f} °C")
                 if 'humi0' in d and d['humi0'] is not None: self._update_label("Humi1", f"Humi1: {d['humi0']:.2f} %")
+                # [수정] 누락되었던 두 번째 온습도 센서 데이터 바인딩 추가
+                if 'temp1' in d and d['temp1'] is not None: self._update_label("Temp2", f"Temp2: {d['temp1']:.2f} °C")
+                if 'humi1' in d and d['humi1'] is not None: self._update_label("Humi2", f"Humi2: {d['humi1']:.2f} %")
                 if 'dist' in d and d['dist'] is not None: self._update_label("Dist", f"Dist: {d['dist']:.1f} cm")
         elif sensor_type == 'fire_status':
             self._update_label("Fire_Status", f"State: {data.get('msg', 'Wait...')}")

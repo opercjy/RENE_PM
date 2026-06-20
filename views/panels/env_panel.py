@@ -21,11 +21,19 @@ class EnvPanel(QWidget):
         container.setFont(QFont("Arial", 12, QFont.Weight.Bold))
         grid_layout = QGridLayout(container)
         
+        # [수정 1] 기존 그래프 항목 유지
         self._create_plot_group(grid_layout, 0, 0, "LS Temp (°C)", "°C", [("L_LS_Temp", "#1f77b4"), ("R_LS_Temp", "#ff7f0e")])
         self._create_plot_group(grid_layout, 0, 1, "TH/O2", "Value", [("Temp(°C)", "#1f77b4"), ("Humi(%)", "#ff7f0e"), ("Oxygen(%)", "#2ca02c")])
         self._create_plot_group(grid_layout, 0, 2, "Magnetometer", "mG", [("Bx", "#d62728"), ("By", "#2ca02c"), ("Bz", "#1f77b4"), ("|B|", "#000000")])
         self._create_plot_group(grid_layout, 1, 0, "LS Level (mm)", "mm", [("GdLS Level", "#1f77b4"), ("GCLS Level", "#ff7f0e")])
-        self._create_plot_group(grid_layout, 1, 1, "Arduino", "Value", [("T1(°C)", "#1f77b4"), ("H1(%)", "#ff7f0e"), ("Dist(cm)", "#2ca02c")])
+        
+        # [수정 2] 아두이노 플롯에 두 번째 센서의 범례(Legend)와 라인 색상(T2: 빨강, H2: 보라) 추가
+        self._create_plot_group(grid_layout, 1, 1, "Arduino", "Value", [
+            ("T1(°C)", "#1f77b4"), ("H1(%)", "#ff7f0e"), 
+            ("T2(°C)", "#d62728"), ("H2(%)", "#9467bd"), 
+            ("Dist(cm)", "#2ca02c")
+        ])
+        
         self._create_plot_group(grid_layout, 1, 2, "Radon", "Bq/m³", [("Radon (μ)", "#1f77b4")])
         layout.addWidget(container)
 
@@ -46,13 +54,11 @@ class EnvPanel(QWidget):
         global_bus.ui_update_requested.connect(self._on_ui_update_requested)
 
     def showEvent(self, event):
-        """[UX 개선] 사용자가 탭을 클릭하여 열 때 누적된 데이터를 즉시 화면에 렌더링"""
         super().showEvent(event)
         self._on_ui_update_requested()
 
     @pyqtSlot()
     def _on_ui_update_requested(self):
-        # [핵심 최적화] 보이지 않는 탭의 그래프 렌더링을 완전히 생략 (프리징 방지)
         if not self.isVisible(): return
         
         flags = self.state_store.plot_dirty_flags
@@ -106,7 +112,13 @@ class EnvPanel(QWidget):
                 if len(ard[v_idx]) > 0:
                     self.curves["T1(°C)"].setData(x=ard[v_idx][:, 0], y=ard[v_idx][:, 1], connect='finite')
                     self.curves["H1(%)"].setData(x=ard[v_idx][:, 0], y=ard[v_idx][:, 2], connect='finite')
+                    
+                    # [수정 3] StateStore에 배열되어 있는 두 번째 센서의 인덱스(3, 4)를 가져와서 렌더링
+                    self.curves["T2(°C)"].setData(x=ard[v_idx][:, 0], y=ard[v_idx][:, 3], connect='finite')
+                    self.curves["H2(%)"].setData(x=ard[v_idx][:, 0], y=ard[v_idx][:, 4], connect='finite')
+                    
                     self.curves["Dist(cm)"].setData(x=ard[v_idx][:, 0], y=ard[v_idx][:, 9], connect='finite')
+                    
             flags["arduino_temp_humi_T1(°C)"] = False
             flags["arduino_temp_humi_H1(%)"] = False
             flags["arduino_temp_humi_T2(°C)"] = False

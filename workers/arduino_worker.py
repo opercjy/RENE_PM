@@ -1,4 +1,4 @@
-# workers/arduino_worker.py
+# workers/arduino_worker.py (전체 덮어쓰기)
 
 import time
 import numpy as np
@@ -19,9 +19,14 @@ class ArduinoWorker(QObject):
         self.db_cols = [f'analog_{i}' for i in range(1, 6)] + ['digital_status', 'message']
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.measure)
-        self.interval = int(config.get('interval_s', 1.0) * 1000)
+        
+        # 기본 폴링 주기를 설정 (기본값 2초 = 2000ms)
+        self.interval = int(config.get('interval_s', 2.0) * 1000)
         self._is_running = False
         self.samples = {key: [] for key in self.config.get('data_mapping', {}).keys()}
+        
+        # [핵심] 특정 센서(temp0) 고장에 의존하지 않는 독립적인 시간 카운터
+        self.tick_counter = 0 
 
     @pyqtSlot()
     def start_worker(self):
@@ -46,6 +51,7 @@ class ArduinoWorker(QObject):
                         key = key.strip()
                         val_str = val_str.strip()
                         if key in self.samples:
+                            # [검증 완료] 아두이노의 'NONE' 출력을 파이썬의 None 객체로 완벽히 치환
                             data[key] = None if val_str.upper() == 'NONE' else float(val_str)
                 
                 if data:
@@ -59,15 +65,23 @@ class ArduinoWorker(QObject):
             if val is not None and key in self.samples:
                 self.samples[key].append(val)
         
-        first_key = next(iter(self.samples), None)
-        if first_key and len(self.samples[first_key]) >= (30 / (self.interval / 1000)):
+        self.tick_counter += 1
+        # [최적화] 다른 센서들과 완벽하게 동일한 1분(60초) 렌더링/저장 주기로 동기화
+        target_ticks = int(60 / (self.interval / 1000)) 
+        
+        if self.tick_counter >= target_ticks:
             avg_data_for_gui = {}
             for key, val_list in self.samples.items():
-                if val_list:
+                if val_list: # 해당 1분 동안 한 번이라도 정상 수신된 데이터가 있다면 평균 계산
                     avg_data_for_gui[key] = float(np.mean(val_list))
+            
             self.avg_data_ready.emit(time.time(), avg_data_for_gui)
-            self._enqueue_db_data(ts, raw_data)
+            
+            # [수정] 순간적인 노이즈가 섞인 단일 raw_data가 아닌, 깨끗한 1분 평균값을 DB에 적재
+            self._enqueue_db_data(ts, avg_data_for_gui)
+            
             self.samples = {key: [] for key in self.samples.keys()}
+            self.tick_counter = 0
 
     def _enqueue_db_data(self, ts, data):
         dt = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))

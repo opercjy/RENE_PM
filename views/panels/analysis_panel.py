@@ -1,4 +1,4 @@
-# views/panels/analysis_panel.py
+# views/panels/analysis_panel.py (전체 덮어쓰기)
 
 import time
 import pandas as pd
@@ -35,6 +35,7 @@ class AnalysisPanel(QWidget):
         ts_layout.setContentsMargins(0,0,0,0)
         
         self.analysis_combo = QComboBox()
+        # [핵심 수정] FIRE_DATA 및 VOC_DATA SQL 쿼리 라우팅 추가 완료
         self.analysis_map = {
             "LS Temperature (C)": "SELECT `datetime`, `RTD_1`, `RTD_2` FROM LS_DATA", 
             "LS Level (mm)": "SELECT `datetime`, `DIST_1`, `DIST_2` FROM LS_DATA",
@@ -43,6 +44,8 @@ class AnalysisPanel(QWidget):
             "TH/O2 Sensor": "SELECT `datetime`, `temperature`, `humidity`, `oxygen` FROM TH_O2_DATA", 
             "Arduino Sensor": "SELECT `datetime`, `analog_1`, `analog_2`, `analog_3`, `analog_4`, `analog_5` FROM ARDUINO_DATA",
             "UPS Status": "SELECT `datetime`, `linev`, `bcharge`, `timeleft` FROM UPS_DATA", 
+            "Flame Sensor (Lv)": "SELECT `datetime`, `status_code` AS `Flame_Level`, `temperature` AS `Temp_C` FROM FIRE_DATA",
+            "VOC Concentration (ppm)": "SELECT `datetime`, `concentration` AS `VOC_ppm` FROM VOC_DATA",
             "HV Voltage (VMon)": "HV_QUERY", 
             "HV Current (IMon)": "HV_QUERY", 
             "HV Board Temperature (C)": "HV_TEMP_QUERY",
