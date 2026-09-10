@@ -60,7 +60,7 @@ def init_logging():
     logging.getLogger().addHandler(eb_handler)
     
     logging.info("="*60)
-    logging.info("RENE-PM v3.0 (Decentralized Event-Driven Architecture) Starting")
+    logging.info("RENE-PM v3.0 (Event-Driven Architecture) Starting")
     logging.info("="*60)
 
 def create_db_pool(db_config):
@@ -114,10 +114,9 @@ if __name__ == '__main__':
     main_window = MainWindow(CONFIG, state_store, db_pool)
     main_window.show()
 
-    # [핵심 수정] 타이머를 main_window 객체에 귀속시켜 가비지 컬렉션 방지
     main_window.ui_timer = QTimer(main_window)
     main_window.ui_timer.timeout.connect(lambda: global_bus.ui_update_requested.emit())
-    main_window.ui_timer.start(500)
+    main_window.ui_timer.start(5000)
 
     workers_to_start = [
         'caen_hv', 'netio_pdu', 'fire_detector', 'voc_detector', 
@@ -130,8 +129,9 @@ if __name__ == '__main__':
     def on_about_to_quit():
         logging.info("Application shutting down...")
         worker_manager.stop_all()
+        # [핵심] DB 워커 역시 강제 종료가 아닌 우아한 깃발 내리기로 유도
         if db_worker and db_thread:
-            QMetaObject.invokeMethod(db_worker, "stop", Qt.ConnectionType.QueuedConnection)
+            db_worker._is_running = False
             db_thread.quit()
             db_thread.wait(3000)
 

@@ -4,16 +4,9 @@ import logging
 import queue
 import mariadb
 import time
-from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer
+from PyQt6.QtCore import QObject, pyqtSlot, QCoreApplication
 
 class DatabaseWorker(QObject):
-    """
-    [데이터 영속성 전문가]
-    메모리 큐에 쌓인 센서 데이터를 주기적으로 긁어내어 DB에 일괄(Batch) INSERT 한다.
-    """
-    status_update = pyqtSignal(str)
-    error_occurred = pyqtSignal(str)
-    
     SQL_INSERT = {
         'DAQ': "INSERT IGNORE INTO LS_DATA (`datetime`, `RTD_1`, `RTD_2`, `DIST_1`, `DIST_2`) VALUES (?, ?, ?, ?, ?)",
         'RADON': "INSERT IGNORE INTO RADON_DATA (`datetime`, `mu`, `sigma`) VALUES (?, ?, ?)",
@@ -26,7 +19,7 @@ class DatabaseWorker(QObject):
         """,
         'UPS': "INSERT IGNORE INTO UPS_DATA (`datetime`, `status`, `linev`, `bcharge`, `timeleft`) VALUES (?, ?, ?, ?, ?)",
         'PDU': "INSERT INTO PDU_DATA (datetime, port_idx, state, power_w, current_ma, energy_wh) VALUES (?, ?, ?, ?, ?, ?)",
-        'FIRE': "INSERT IGNORE INTO FIRE_DATA (`datetime`, `status_code`, `is_fire`, `is_fault`) VALUES (?, ?, ?, ?)",
+        'FIRE': "INSERT IGNORE INTO FIRE_DATA (`datetime`, `status_code`, `is_fire`, `is_fault`, `temperature`) VALUES (?, ?, ?, ?, ?)",
         'VOC': "INSERT IGNORE INTO VOC_DATA (`datetime`, `concentration`, `alarm_status`, `unit`) VALUES (?, ?, ?, ?)"
     }
     
@@ -79,7 +72,7 @@ class DatabaseWorker(QObject):
         "CREATE INDEX IF NOT EXISTS idx_pdu_time ON PDU_DATA (datetime);",
         "CREATE INDEX IF NOT EXISTS idx_pdu_port ON PDU_DATA (port_idx);",
         """CREATE TABLE IF NOT EXISTS FIRE_DATA (
-            `datetime` DATETIME NOT NULL PRIMARY KEY, `status_code` INT, `is_fire` BOOLEAN, `is_fault` BOOLEAN);""",
+            `datetime` DATETIME NOT NULL PRIMARY KEY, `status_code` INT, `is_fire` BOOLEAN, `is_fault` BOOLEAN, `temperature` FLOAT);""",
         "CREATE INDEX IF NOT EXISTS idx_fire_datetime ON FIRE_DATA (datetime);",
         """CREATE TABLE IF NOT EXISTS VOC_DATA (
             `datetime` DATETIME NOT NULL PRIMARY KEY, `concentration` FLOAT, `alarm_status` INT, `unit` VARCHAR(10));""",
@@ -91,9 +84,7 @@ class DatabaseWorker(QObject):
         self.db_pool = db_pool
         self.db_config = db_config
         self.data_queue = data_queue
-        self._is_running = True
-        self.batch_timer = QTimer(self)
-        self.batch_timer.timeout.connect(self.process_batch)
+        self._is_running = False
 
     def _setup_tables(self):
         conn = None
@@ -116,15 +107,22 @@ class DatabaseWorker(QObject):
             """, (self.db_config['database'],))
             
             if cursor.fetchone()[0] == 0:
-                logging.warning("Column 'board_temp' not found in HV_DATA. Altering table...")
                 cursor.execute("ALTER TABLE HV_DATA ADD COLUMN board_temp FLOAT")
                 conn.commit()
-                logging.info("Successfully added 'board_temp' column to HV_DATA table.")
+
+            cursor.execute("""
+                SELECT COUNT(*) 
+                FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'FIRE_DATA' AND COLUMN_NAME = 'temperature'
+            """, (self.db_config['database'],))
+            
+            if cursor.fetchone()[0] == 0:
+                cursor.execute("ALTER TABLE FIRE_DATA ADD COLUMN temperature FLOAT")
+                conn.commit()
 
             logging.info("Database tables and indexes are ready.")
             return True
         except mariadb.Error as e:
-            self.error_occurred.emit(f"DB Table/Index Setup Error: {e}")
             logging.error(f"DB Table/Index Setup Error: {e}")
             return False
         finally:
@@ -133,15 +131,38 @@ class DatabaseWorker(QObject):
     @pyqtSlot()
     def run(self):
         if not self.db_pool: return
-        if not self._setup_tables():
-            QTimer.singleShot(10000, self.run)
-            return
-        self.batch_timer.start(60 * 1000)
-        logging.info("Database worker started, using shared connection pool.")
+        self._is_running = True
+        
+        # [수정 1] 재귀 호출을 피하기 위한 While 루프 적용
+        while self._is_running:
+            if self._setup_tables():
+                break
+            logging.warning("DB connection failed during setup. Retrying in 10 seconds...")
+            # 재시도 대기 중에도 종료 시그널 처리가 가능하도록 변경
+            for _ in range(10):
+                if not self._is_running: return
+                time.sleep(1.0)
+                QCoreApplication.processEvents() 
 
-    @pyqtSlot()
-    def process_batch(self):
         if not self._is_running: return
+        logging.info("Database worker background loop started, using shared connection pool.")
+        
+        # [수정 2] time.sleep 중단 및 PyQt Event Loop 블로킹 방지
+        while self._is_running:
+            for _ in range(60):
+                if not self._is_running: break
+                time.sleep(1.0)
+                # PyQt 환경에서 스레드가 시그널(예: stop)을 받을 수 있도록 이벤트 루프 처리
+                QCoreApplication.processEvents()
+            
+            if not self._is_running: break
+            self.process_batch()
+        
+        logging.info("Processing remaining items before stopping DB worker.")
+        self.process_batch()
+        logging.info("DB worker stopped.")
+
+    def process_batch(self):
         batch_size = self.data_queue.qsize()
         if batch_size == 0: return
 
@@ -162,8 +183,6 @@ class DatabaseWorker(QObject):
                         elif data_payload: 
                             batch[data_type].append(data_payload)
                             processed_record_count += 1
-                        else:
-                             logging.debug(f"Received empty payload for type {data_type}")
                 self.data_queue.task_done()
             except queue.Empty: break
         
@@ -188,7 +207,3 @@ class DatabaseWorker(QObject):
     @pyqtSlot()
     def stop(self):
         self._is_running = False
-        self.batch_timer.stop()
-        logging.info("Processing remaining items before stopping DB worker.")
-        self.process_batch()
-        logging.info("DB worker stopped.")

@@ -1,9 +1,17 @@
 # views/main_window.py (전체 덮어쓰기)
 
+import sys
+import json
+import logging
+import queue
+import mariadb
+import os
+
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QTabWidget, QLabel, QStatusBar)
 from PyQt6.QtGui import QFont
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
+from datetime import datetime
 
 from views.panels.safety_panel import SafetyPanel
 from views.panels.pdu_panel import PDUPanel
@@ -18,6 +26,7 @@ from views.panels.settings_panel import SettingsPanel
 
 from views.components.dashboard_panel import DashboardPanel
 from views.components.hv_grid_panel import HVGridPanel
+from core.event_bus import global_bus
 
 class MainWindow(QMainWindow):
     def __init__(self, config, state_store, db_pool):
@@ -28,7 +37,7 @@ class MainWindow(QMainWindow):
         self._init_ui()
 
     def _init_ui(self):
-        self.setWindowTitle("RENE-PM v3.0 Decentralized")
+        self.setWindowTitle("RENE-PM v3.0")
         self.setGeometry(50, 50, 1920, 1080)
         
         self.status_bar = QStatusBar(self)
@@ -49,7 +58,6 @@ class MainWindow(QMainWindow):
         
         self.tab_widget = QTabWidget()
         
-        # [수정] SafetyPanel에 state_store 의존성 주입
         self.safety_panel = SafetyPanel(self.state_store)
         self.tab_widget.addTab(self.safety_panel, "🛡️ Safety")
         
@@ -77,8 +85,9 @@ class MainWindow(QMainWindow):
         self.log_panel = LogPanel(self.config)
         self.tab_widget.addTab(self.log_panel, "📜 Logs")
         
+        # [변경 후] config 인자 추가
         if self.config.get('netio_pdu', {}).get("enabled"):
-            self.pdu_panel = PDUPanel()
+            self.pdu_panel = PDUPanel(self.config) 
             self.tab_widget.addTab(self.pdu_panel, "⚡ PDU Control")
             
         self.settings_panel = SettingsPanel(self.config)
@@ -97,6 +106,21 @@ class MainWindow(QMainWindow):
         self.dashboard_panel = DashboardPanel(self.config)
         main_layout.addWidget(self.dashboard_panel, 2)
         
+        self.clock_label = QLabel()
+        self.clock_label.setFont(QFont("Arial", 11, QFont.Weight.Bold))
+        self.clock_label.setStyleSheet("color: #2c3e50; padding-right: 15px;")
+        self.status_bar.addPermanentWidget(self.clock_label)
+        
         shifter_text = self.config.get("shifter_name", "Unknown Shifter")
         self.shifter_label = QLabel(f" Shifter: {shifter_text} ")
         self.status_bar.addPermanentWidget(self.shifter_label)
+
+        self.clock_timer = QTimer(self)
+        self.clock_timer.timeout.connect(self._update_clock)
+        self.clock_timer.start(100)
+        self._update_clock()
+
+    def _update_clock(self):
+        current_time = datetime.now().strftime(" 🕒 %Y-%m-%d %H:%M:%S ")
+        if self.clock_label.text() != current_time:
+            self.clock_label.setText(current_time)

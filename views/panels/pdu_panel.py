@@ -8,8 +8,14 @@ from core.event_bus import global_bus
 from datetime import datetime
 
 class PDUPanel(QWidget):
-    def __init__(self):
+    def __init__(self, config=None):
         super().__init__()
+        self.config = config or {}
+        
+        # [수정] JSON의 계층 구조에 맞게 'netio_pdu' 내부의 'port_map'을 추출합니다.
+        netio_config = self.config.get("netio_pdu", {})
+        self.port_map = netio_config.get("port_map", {}) 
+        
         self.is_connected = False
         self.port_widgets = {}
         self._init_ui()
@@ -72,13 +78,20 @@ class PDUPanel(QWidget):
         grid = QGridLayout(group)
         grid.setSpacing(8)
         
-        headers = ["#", "State", "Power (W)", "Current (mA)", "Energy (Wh)", "Control"]
+        # 헤더에 "Name"을 추가합니다.
+        headers = ["#", "Name", "State", "Power (W)", "Current (mA)", "Energy (Wh)", "Control"]
         for i, header in enumerate(headers):
             lbl = QLabel(header)
             lbl.setStyleSheet("font-weight: bold; text-decoration: underline;")
             grid.addWidget(lbl, 0, i, alignment=Qt.AlignmentFlag.AlignCenter)
             
         for i in range(1, 9):
+            # JSON의 키는 문자열이므로 str(i)를 사용하여 이름을 가져옵니다.
+            # 매핑된 이름이 없으면 기본값으로 "Port X"를 사용합니다.
+            port_name_str = self.port_map.get(str(i), f"Port {i}")
+            lbl_name = QLabel(port_name_str)
+            lbl_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
             lbl_state = QLabel("N/A")
             lbl_state.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self._set_state_style(lbl_state, None)
@@ -97,17 +110,18 @@ class PDUPanel(QWidget):
             ctrl_layout.addWidget(btn_off)
             
             self.port_widgets[i] = {
-                'state': lbl_state, 'power': QLabel("0"), 
+                'name': lbl_name, 'state': lbl_state, 'power': QLabel("0"), 
                 'current': QLabel("0"), 'energy': QLabel("0"),
                 'btn_on': btn_on, 'btn_off': btn_off
             }
             
             grid.addWidget(QLabel(str(i)), i, 0, alignment=Qt.AlignmentFlag.AlignCenter)
-            grid.addWidget(lbl_state, i, 1)
-            grid.addWidget(self.port_widgets[i]['power'], i, 2, alignment=Qt.AlignmentFlag.AlignRight)
-            grid.addWidget(self.port_widgets[i]['current'], i, 3, alignment=Qt.AlignmentFlag.AlignRight)
-            grid.addWidget(self.port_widgets[i]['energy'], i, 4, alignment=Qt.AlignmentFlag.AlignRight)
-            grid.addWidget(ctrl_widget, i, 5)
+            grid.addWidget(lbl_name, i, 1, alignment=Qt.AlignmentFlag.AlignCenter) # 이름 열 추가
+            grid.addWidget(lbl_state, i, 2)
+            grid.addWidget(self.port_widgets[i]['power'], i, 3, alignment=Qt.AlignmentFlag.AlignRight)
+            grid.addWidget(self.port_widgets[i]['current'], i, 4, alignment=Qt.AlignmentFlag.AlignRight)
+            grid.addWidget(self.port_widgets[i]['energy'], i, 5, alignment=Qt.AlignmentFlag.AlignRight)
+            grid.addWidget(ctrl_widget, i, 6)
             
         return group
 

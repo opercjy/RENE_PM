@@ -17,7 +17,6 @@ class EnvPanel(QWidget):
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
-        
         container = QGroupBox("Environment & UPS Time-Series")
         container.setFont(QFont("Arial", 12, QFont.Weight.Bold))
         grid_layout = QGridLayout(container)
@@ -26,9 +25,15 @@ class EnvPanel(QWidget):
         self._create_plot_group(grid_layout, 0, 1, "TH/O2", "Value", [("Temp(°C)", "#1f77b4"), ("Humi(%)", "#ff7f0e"), ("Oxygen(%)", "#2ca02c")])
         self._create_plot_group(grid_layout, 0, 2, "Magnetometer", "mG", [("Bx", "#d62728"), ("By", "#2ca02c"), ("Bz", "#1f77b4"), ("|B|", "#000000")])
         self._create_plot_group(grid_layout, 1, 0, "LS Level (mm)", "mm", [("GdLS Level", "#1f77b4"), ("GCLS Level", "#ff7f0e")])
-        self._create_plot_group(grid_layout, 1, 1, "Arduino", "Value", [("T1(°C)", "#1f77b4"), ("H1(%)", "#ff7f0e"), ("Dist(cm)", "#2ca02c")])
-        self._create_plot_group(grid_layout, 1, 2, "Radon", "Bq/m³", [("Radon (μ)", "#1f77b4")])
         
+        # [수정] 아두이노 플롯에 두 번째 센서의 범례(Legend)와 라인 색상(T2: 빨강, H2: 보라) 추가
+        self._create_plot_group(grid_layout, 1, 1, "Arduino", "Value", [
+            ("T1(°C)", "#1f77b4"), ("H1(%)", "#ff7f0e"), 
+            ("T2(°C)", "#d62728"), ("H2(%)", "#9467bd"), 
+            ("Dist(cm)", "#2ca02c")
+        ])
+        
+        self._create_plot_group(grid_layout, 1, 2, "Radon", "Bq/m³", [("Radon (μ)", "#1f77b4")])
         layout.addWidget(container)
 
     def _create_plot_group(self, grid, row, col, title, y_label, legends):
@@ -38,21 +43,23 @@ class EnvPanel(QWidget):
         plot.showGrid(x=True, y=True, alpha=0.3)
         plot.setAxisItems({'bottom': pg.DateAxisItem(orientation='bottom')})
         plot.getAxis('left').setLabel(y_label)
-        
         legend_item = plot.addLegend(offset=(10, 10))
         legend_item.setBrush(pg.mkBrush(255, 255, 255, 150))
-        
         for name, color in legends:
-            # 마커 옵션 제거 완료
             self.curves[name] = plot.plot(pen=pg.mkPen(color, width=2.5), name=name)
-            
         grid.addWidget(plot, row, col)
 
     def _connect_signals(self):
         global_bus.ui_update_requested.connect(self._on_ui_update_requested)
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._on_ui_update_requested()
+
     @pyqtSlot()
     def _on_ui_update_requested(self):
+        if not self.isVisible(): return
+        
         flags = self.state_store.plot_dirty_flags
         
         if flags.get("daq_ls_temp_L_LS_Temp"):
@@ -104,7 +111,13 @@ class EnvPanel(QWidget):
                 if len(ard[v_idx]) > 0:
                     self.curves["T1(°C)"].setData(x=ard[v_idx][:, 0], y=ard[v_idx][:, 1], connect='finite')
                     self.curves["H1(%)"].setData(x=ard[v_idx][:, 0], y=ard[v_idx][:, 2], connect='finite')
+                    
+                    # [수정] StateStore에 배열되어 있는 두 번째 센서의 인덱스(3, 4)를 가져와서 렌더링
+                    self.curves["T2(°C)"].setData(x=ard[v_idx][:, 0], y=ard[v_idx][:, 3], connect='finite')
+                    self.curves["H2(%)"].setData(x=ard[v_idx][:, 0], y=ard[v_idx][:, 4], connect='finite')
+                    
                     self.curves["Dist(cm)"].setData(x=ard[v_idx][:, 0], y=ard[v_idx][:, 9], connect='finite')
+                    
             flags["arduino_temp_humi_T1(°C)"] = False
             flags["arduino_temp_humi_H1(%)"] = False
             flags["arduino_temp_humi_T2(°C)"] = False

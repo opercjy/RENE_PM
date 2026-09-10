@@ -1,11 +1,13 @@
-# workers/fire_worker.py
+# workers/fire_worker.py (전체 덮어쓰기)
 
 import time
 import logging
 import struct
 from pymodbus.client import ModbusSerialClient
 from pymodbus.exceptions import ModbusException
-from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer
+from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
+
+logging.getLogger("pymodbus").setLevel(logging.CRITICAL)
 
 class FireWorker(QObject):
     data_ready = pyqtSignal(dict)
@@ -16,90 +18,86 @@ class FireWorker(QObject):
         self.config = config
         self.data_queue = data_queue
         self.client = None
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.measure)
-        self.interval = int(config.get('interval_s', 1.0) * 1000)
+        self.interval = float(config.get('interval_s', 1.0))
         self._is_running = False
+        self.consecutive_errors = 0
 
     @pyqtSlot()
-    def start_worker(self):
+    def run(self):
+        self._is_running = True
+        logging.info(f"FireWorker (FS24X Plus) background loop started on {self.config['port']}")
         try:
-            self.client = ModbusSerialClient(
-                port=self.config['port'], 
-                baudrate=self.config.get('baudrate', 19200), 
-                parity='N', stopbits=1, bytesize=8, timeout=1
-            )
-            if not self.client.connect():
-                raise ConnectionError(f"Failed to connect to {self.config['port']}")
-            
-            self._is_running = True
-            self.timer.start(self.interval)
-            logging.info(f"FireWorker (FS24X Plus) started on {self.config['port']}")
-        except Exception as e:
-            self.error_occurred.emit(f"Fire Detector Error: {e}")
+            while self._is_running:
+                ts = time.time()
+                try:
+                    if self.client is None:
+                        self.client = ModbusSerialClient(
+                            port=self.config['port'], baudrate=self.config.get('baudrate', 9600), 
+                            parity=self.config.get('parity', 'E'), stopbits=1, bytesize=8, timeout=0.5
+                        )
+                    if not self.client.connect():
+                        raise ConnectionError("Port disconnected")
+                        
+                    slave_id = self.config.get('slave_id', 45)
+                    res = self.client.read_holding_registers(address=2, count=13, slave=slave_id)
 
-    def _read_float32(self, address, slave_id):
-        relative_addr = address - 40001
-        rr = self.client.read_holding_registers(address=relative_addr, count=2, slave=slave_id)
-        
-        if rr.isError():
-            raise ModbusException(f"Read Error at {address}")
-            
-        raw_bytes = struct.pack('>HH', rr.registers[0], rr.registers[1])
-        return struct.unpack('>f', raw_bytes)[0]
+                    if res.isError() or len(res.registers) < 13:
+                        raise ModbusException("Modbus Response Error")
 
-    def measure(self):
-        if not self._is_running: return
-        try:
-            ts = time.time()
-            slave_id = self.config.get('slave_id', 1)
-            regs = self.config.get('registers', {
-                "alarm_level": 40003, 
-                "fault_code": 40005, 
-                "monitor_state": 40007
-            })
-            
-            alarm_val = self._read_float32(regs['alarm_level'], slave_id)
-            
-            fault_addr_rel = regs['fault_code'] - 40001
-            rr_fault = self.client.read_holding_registers(address=fault_addr_rel, count=1, slave=slave_id)
-            
-            if not rr_fault.isError():
-                fault_code = rr_fault.registers[0]
-            else:
-                fault_code = 0
-            
-            is_fire = (alarm_val >= 1.0)
-            is_fault = (fault_code > 0)
-            
-            status_str = "NORMAL"
-            if is_fire: 
-                status_str = "FIRE ALARM"
-            elif is_fault: 
-                status_str = f"FAULT ({fault_code})"
+                    if self.consecutive_errors > 0:
+                        logging.info("Fire Detector (IR3 Flame) 통신이 복구되었습니다.")
+                    self.consecutive_errors = 0
 
-            data = {
-                'fire_detector': {
-                    'status_code': int(alarm_val),
-                    'is_fire': is_fire,
-                    'is_fault': is_fault,
-                    'msg': status_str
-                }
-            }
-            
-            self.data_ready.emit(data)
-            self._enqueue_db_data(ts, int(alarm_val), is_fire, is_fault)
+                    raw_bytes = struct.pack('>HH', res.registers[0], res.registers[1])
+                    alarm_level = struct.unpack('>f', raw_bytes)[0]
+                    fault_code = res.registers[2]
+                    
+                    state_val = res.registers[4]
+                    if state_val in [1, 6]: state_str = "NORMAL"
+                    elif state_val in [2, 3]: state_str = "INHIBITED"
+                    elif state_val in [5, 7]: state_str = "WARNING"
+                    elif state_val in [1, 4, 8]: state_str = "FAULT"
+                    elif state_val in [16, 17, 3] or alarm_level >= 1.0: state_str = "FIRE ALARM!"
+                    else: state_str = f"UNKNOWN ({state_val})"
 
-        except Exception as e:
-            self.error_occurred.emit(f"Fire Detector Comm Error: {e}")
+                    temp_raw = res.registers[12]
+                    if temp_raw > 32767: temp_raw -= 65536
+                    temperature = temp_raw / 10.0
 
-    def _enqueue_db_data(self, ts, code, fire, fault):
+                    is_fire = ("ALARM" in state_str)
+                    is_fault = ("FAULT" in state_str or fault_code > 0)
+                    if is_fault and not is_fire: state_str = f"FAULT ({fault_code})"
+                    display_msg = f"{state_str} ({temperature:.1f}°C)"
+
+                    self.data_ready.emit({'fire_detector': {'status_code': int(alarm_level), 'is_fire': is_fire, 'is_fault': is_fault, 'msg': display_msg}})
+                    self._enqueue_db_data(ts, int(alarm_level), is_fire, is_fault, temperature)
+
+                except Exception as e:
+                    if not self._is_running: break
+                    self.consecutive_errors += 1
+                    if self.consecutive_errors % 5 == 0:
+                        self.error_occurred.emit(f"Fire Detector 통신 에러 ({self.consecutive_errors}회 연속 실패)")
+                    
+                    if self.client:
+                        try: self.client.close()
+                        except: pass
+                        self.client = None
+
+                    self.data_ready.emit({'fire_detector': {'status_code': -1, 'is_fire': False, 'is_fault': True, 'msg': 'COMM FAULT'}})
+                    self._enqueue_db_data(ts, None, False, True, None)
+
+                elapsed = time.time() - ts
+                time.sleep(max(0, self.interval - elapsed))
+        finally:
+            if self.client:
+                try: self.client.close()
+                except: pass
+
+    def _enqueue_db_data(self, ts, code, fire, fault, temp):
         dt_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))
-        self.data_queue.put({'type': 'FIRE', 'data': (dt_str, code, fire, fault)})
+        temp_val = round(temp, 1) if temp is not None else None
+        self.data_queue.put({'type': 'FIRE', 'data': (dt_str, code, fire, fault, temp_val)})
 
     @pyqtSlot()
-    def stop_worker(self):
+    def stop(self):
         self._is_running = False
-        self.timer.stop()
-        if self.client: 
-            self.client.close()
