@@ -1,3 +1,5 @@
+# workers/pdu_worker.py
+
 import time
 import logging
 import threading
@@ -134,17 +136,20 @@ class PDUWorker(QObject):
                 self.sig_queue_data.emit({'type': 'PDU', 'data': db_payloads})
 
         except ConnectionException as e:
-             self.logger.error(f"PDU Connection Error during polling: {e}")
-             self.sig_log_message.emit("CRITICAL", f"Connection Error: {e}")
-             self.set_connection_status(False)
+            self.logger.error(f"PDU Connection Error during polling: {e}")
+            self.sig_log_message.emit("CRITICAL", f"Connection Error: {e}")
+            self.set_connection_status(False)
+            self.client.close()  # 통신 끊김 시 소켓 강제 초기화
         except ModbusException as e:
             self.logger.error(f"Modbus Exception during PDU polling: {e}")
             self.sig_log_message.emit("CRITICAL", f"Modbus Exception: {e}")
             self.set_connection_status(False)
+            self.client.close()  # 통신 끊김 시 소켓 강제 초기화
         except Exception as e:
-             self.logger.error(f"Unexpected Exception during PDU polling: {e}", exc_info=True)
-             self.sig_log_message.emit("CRITICAL", f"Polling Error: {e}")
-             self.set_connection_status(False)
+            self.logger.error(f"Unexpected Exception during PDU polling: {e}", exc_info=True)
+            self.sig_log_message.emit("CRITICAL", f"Polling Error: {e}")
+            self.set_connection_status(False)
+            self.client.close()  # 통신 끊김 시 소켓 강제 초기화
         finally:
             self.modbus_lock.release() # 작업 완료 후 Lock 해제
 
@@ -171,11 +176,15 @@ class PDUWorker(QObject):
                     self.sig_log_message.emit("ERROR", f"[ERR] Failed to control Port {port_num}. Modbus Error: {result}")
 
             except ConnectionException as e:
-                 self.logger.error(f"PDU Connection Error during single port control: {e}")
-                 self.sig_log_message.emit("CRITICAL", f"Connection Error during control: {e}")
+                self.logger.error(f"PDU Connection Error during single port control: {e}")
+                self.sig_log_message.emit("CRITICAL", f"Connection Error during control: {e}")
+                self.set_connection_status(False)
+                self.client.close()  # 통신 끊김 시 소켓 강제 초기화
             except Exception as e:
                 self.logger.error(f"Exception during PDU single port control: {e}", exc_info=True)
                 self.sig_log_message.emit("CRITICAL", f"Exception during control: {e}")
+                self.set_connection_status(False)
+                self.client.close()  # 통신 끊김 시 소켓 강제 초기화
 
     @pyqtSlot(bool)
     def control_all_ports(self, state):
@@ -200,8 +209,12 @@ class PDUWorker(QObject):
                 QTimer.singleShot(500, self.poll_data)
 
             except ConnectionException as e:
-                 self.logger.error(f"PDU Connection Error during all port control: {e}")
-                 self.sig_log_message.emit("CRITICAL", f"Connection Error during ALL control: {e}")
+                self.logger.error(f"PDU Connection Error during all port control: {e}")
+                self.sig_log_message.emit("CRITICAL", f"Connection Error during ALL control: {e}")
+                self.set_connection_status(False)
+                self.client.close()  # 통신 끊김 시 소켓 강제 초기화
             except Exception as e:
                 self.logger.error(f"Exception during PDU all port control: {e}", exc_info=True)
                 self.sig_log_message.emit("CRITICAL", f"Exception during all port control: {e}")
+                self.set_connection_status(False)
+                self.client.close()  # 통신 끊김 시 소켓 강제 초기화
